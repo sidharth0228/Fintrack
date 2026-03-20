@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script>
+        (function() {
+            if (localStorage.getItem('dark-mode') === 'enabled') {
+                document.documentElement.classList.add('dark-mode');
+            }
+        })();
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinTrack - Track. Analyze. Grow Your Wealth.</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                window.location.href = 'dashboard.html';
+            }
+
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                const updateIcon = (isDark) => {
+                    themeToggle.innerHTML = isDark 
+                        ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`
+                        : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+                };
+
+                updateIcon(document.documentElement.classList.contains('dark-mode'));
+
+                themeToggle.addEventListener('click', () => {
+                    document.documentElement.classList.toggle('dark-mode');
+                    const isDark = document.documentElement.classList.contains('dark-mode');
+                    localStorage.setItem('dark-mode', isDark ? 'enabled' : 'disabled');
+                    updateIcon(isDark);
+                });
+            }
+        });
+    </script>
+</head>
+
+<body>
+    <!-- Top Navigation -->
+    <header class="container">
+        <nav class="navbar">
+            <div class="logo">
+                <div class="logo-icon">F</div>
+                <div class="logo-text"><span class="logo-text-fin">Fin</span><span class="logo-text-track">Track</span>
+                </div>
+            </div>
+            <div class="nav-links">
+                <a href="#features" class="nav-link">Features</a>
+                <a href="#pricing" class="nav-link">Pricing</a>
+                <a href="#about" class="nav-link">About</a>
+            </div>
+            <div class="flex gap-2 items-center">
+                <button id="theme-toggle" class="theme-toggle" title="Toggle Dark Mode" aria-label="Toggle Theme" style="position: relative; top: 0; left: 0; margin-right: 10px;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                </button>
+                <a href="login.html" class="btn btn-ghost">Log in</a>
+                <a href="signup.html" class="btn btn-primary">Sign up</a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="container pt-6 pb-6">
+        <div class="flex items-center justify-between gap-4 hero-container">
+            <div class="flex-col gap-3" style="flex: 1;">
+                <h1 class="text-4xl">Track. Analyze. <br><span class="text-success">Grow Your Wealth.</span></h1>
+                <p class="text-lg text-muted mt-2 mb-4" style="max-width: 500px;">
+                    Take control of your financial future. Monitor your expenses, track your loans, and optimize your
+                    investment portfolio all in one elegant dashboard.
+                </p>
+                <div class="flex gap-3 hero-actions">
+                    <a href="signup.html" class="btn btn-primary" style="padding: 1rem 2rem; font-size: 1rem;">Get
+                        Started for Free</a>
+                    <a href="login.html" class="btn btn-outline" style="padding: 1rem 2rem; font-size: 1rem;">View
+                        Demo</a>
+                </div>
+            </div>
+            <div style="flex: 1;" class="hero-image">
+                <!-- Mockup illustration using CSS shapes -->
+                <div class="card"
+                    style="position: relative; overflow: hidden; height: 400px; display: flex; flex-direction: column; background: linear-gradient(145deg, var(--surface-color), var(--bg-color)); box-shadow: var(--shadow-xl);">
+                    <div
+                        style="padding: 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between;">
+                        <div class="font-semibold">Total Balance</div>
+                        <div class="text-success font-bold">+12.5%</div>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <div class="text-3xl font-bold mb-4">₹124,563.00</div>
+                        <div class="chart-bar-container">
+                            <div class="chart-bar" data-value="low"></div>
+                            <div class="chart-bar" data-value="medium"></div>
+                            <div class="chart-bar" data-value="max"></div>
+                            <div class="chart-bar" data-value="high"></div>
+                            <div class="chart-bar" data-value="medium"></div>
+                            <div class="chart-bar" data-value="max"></div>
+                            <div class="chart-bar" data-value="high"></div>
+                        </div>
+                    </div>
+                    <div
+                        style="position: absolute; bottom: 20px; right: 20px; background: var(--surface-color); padding: 1rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: 1rem;">
+                        <div class="logo-dot"></div>
+                        <div>
+                            <div class="text-sm font-semibold">Salary Deposited</div>
+                            <div class="text-xs text-muted">Just now</div>
+                        </div>
+                        <div class="font-bold text-success">+₹5,240</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="container pt-6 pb-6 mt-6">
+        <div class="text-center mb-6">
+            <h2 class="text-3xl mb-2">Everything You Need</h2>
+            <p class="text-muted text-lg">A comprehensive suite of tools to manage your entire financial life.</p>
+        </div>
+
+        <div class="grid grid-cols-3 gap-4">
+            <!-- Feature 1 -->
+            <div class="card">
+                <div
+                    style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.1); color: var(--success); display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="1" x2="12" y2="23"></line>
+                        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                    </svg>
+                </div>
+                <h3 class="text-xl mb-2">Expense Tracking</h3>
+                <p class="text-muted">Categorize and analyze your spending automatically. See exactly where your money
+                    goes each month.</p>
+            </div>
+
+            <!-- Feature 2 -->
+            <div class="card">
+                <div
+                    style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(59, 130, 246, 0.1); color: var(--info); display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                            d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
+                        </path>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                    </svg>
+                </div>
+                <h3 class="text-xl mb-2">Loan Monitoring</h3>
+                <p class="text-muted">Keep track of your EMIs, interest rates, and remaining tenures. Plan your debt
+                    payoff strategies.</p>
+            </div>
+
+            <!-- Feature 3 -->
+            <div class="card">
+                <div
+                    style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(139, 92, 246, 0.1); color: #8B5CF6; display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                    </svg>
+                </div>
+                <h3 class="text-xl mb-2">Investment Analysis</h3>
+                <p class="text-muted">Monitor your stocks, mutual funds, and crypto across all accounts in a unified
+                    portfolio view.</p>
+            </div>
+
+            <!-- Feature 4 -->
+            <div class="card">
+                <div
+                    style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(245, 158, 11, 0.1); color: var(--warning); display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                </div>
+                <h3 class="text-xl mb-2">Financial Health Score</h3>
+                <p class="text-muted">Get a holistic 0-100 score on how well you're managing your wealth based on
+                    standard financial metrics.</p>
+            </div>
+
+            <!-- Feature 5 -->
+            <div class="card grid-cols-2" style="grid-column: span 2;">
+                <h3 class="text-xl mb-2">Portfolio Suggestions</h3>
+                <p class="text-muted mb-4">Discover asset allocations tailored to your age, income, and risk tolerance
+                    through smart algorithmic suggestions tailored for your growth.</p>
+                <a href="signup.html" class="btn btn-outline">Explore More &rarr;</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer style="background-color: var(--primary-color); color: white; padding: 4rem 0 2rem 0; margin-top: 4rem;">
+        <div class="container">
+            <div class="grid grid-cols-4 gap-4 mb-6"
+                style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 2rem;">
+                <div style="grid-column: span 2;">
+                    <div class="logo mb-2" style="color: white;">
+                        <div class="logo-icon">F</div>
+                        <div class="logo-text"><span class="logo-text-fin">Fin</span><span
+                                class="logo-text-track">Track</span></div>
+                    </div>
+                    <p class="text-muted" style="max-width: 300px; color: #94A3B8;">
+                        The ultimate clean, secure, and intuitive web platform to map out your financial freedom
+                        journey.
+                    </p>
+                </div>
+                <div>
+                    <h4 class="mb-3">Platform</h4>
+                    <ul class="flex-col gap-1">
+                        <li><a href="dashboard.html" style="color: #94A3B8;">Dashboard</a></li>
+                        <li><a href="portfolio.html" style="color: #94A3B8;">Investments</a></li>
+                        <li><a href="loans.html" style="color: #94A3B8;">Loans</a></li>
+                        <li><a href="score.html" style="color: #94A3B8;">Health Score</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="mb-3">Company</h4>
+                    <ul class="flex-col gap-1">
+                        <li><a href="#" style="color: #94A3B8;">About Us</a></li>
+                        <li><a href="#" style="color: #94A3B8;">Careers</a></li>
+                        <li><a href="#" style="color: #94A3B8;">Privacy</a></li>
+                        <li><a href="#" style="color: #94A3B8;">Terms</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="flex justify-between items-center" style="color: #64748B; font-size: 0.875rem;">
+                <div>&copy; 2026 FinTrack Inc. All rights reserved.</div>
+                <div class="flex gap-2">
+                    <!-- Social icons placeholders -->
+                    <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.1);">
+                    </div>
+                    <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.1);">
+                    </div>
+                    <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.1);">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+
+</html>

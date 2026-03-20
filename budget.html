@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script>
+        (function() {
+            if (localStorage.getItem('dark-mode') === 'enabled') {
+                document.documentElement.classList.add('dark-mode');
+            }
+        })();
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Budget - FinTrack</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                const updateIcon = (isDark) => {
+                    themeToggle.innerHTML = isDark 
+                        ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`
+                        : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+                };
+
+                updateIcon(document.documentElement.classList.contains('dark-mode'));
+
+                themeToggle.addEventListener('click', () => {
+                    document.documentElement.classList.toggle('dark-mode');
+                    const isDark = document.documentElement.classList.contains('dark-mode');
+                    localStorage.setItem('dark-mode', isDark ? 'enabled' : 'disabled');
+                    updateIcon(isDark);
+                });
+            }
+
+            // Sync User Info
+            const user = JSON.parse(localStorage.getItem('user'));
+            if (user && document.querySelector('.avatar')) {
+                document.querySelector('.avatar').innerText = user.name.split(' ').map(n => n[0]).join('').toUpperCase();
+            }
+
+            fetchBudgets();
+
+            // Handle Logout
+            document.querySelectorAll('a').forEach(link => {
+                if (link.innerText.includes('Log Out')) {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = 'login.html';
+                    });
+                }
+            });
+        });
+
+        async function fetchBudgets() {
+            try {
+                // Fetch both budgets and expenses from localStorage
+                const budgets = JSON.parse(localStorage.getItem('localBudgets') || '[]');
+                const expenses = JSON.parse(localStorage.getItem('localExpenses') || '[]');
+
+                const now = new Date();
+                const currentMonth = now.getMonth();
+                const currentYear = now.getFullYear();
+
+                const defaultBudgets = [
+                    { category: 'Rent/EMI', monthlyLimit: 14500, type: 'Fixed' },
+                    { category: 'Insurance', monthlyLimit: 2500, type: 'Fixed' },
+                    { category: 'Utilities', monthlyLimit: 2500, type: 'Fixed' },
+                    { category: 'Subscriptions', monthlyLimit: 1500, type: 'Fixed' },
+                    { category: 'Dining Out', monthlyLimit: 4000, type: 'Variable' },
+                    { category: 'Groceries', monthlyLimit: 4000, type: 'Variable' },
+                    { category: 'Shopping', monthlyLimit: 3000, type: 'Variable' },
+                    { category: 'Transportation', monthlyLimit: 2000, type: 'Variable' },
+                    { category: 'Miscellaneous', monthlyLimit: 1000, type: 'Variable' },
+                    { category: 'Goals', monthlyLimit: 5000, type: 'Variable' }
+                ];
+                
+                const deletedCategories = JSON.parse(localStorage.getItem('deletedCategories') || '[]');
+                
+                let effectiveBudgets = [...defaultBudgets];
+
+                // Merge backend budgets over defaults or add custom new ones
+                budgets.forEach(b => {
+                    const defaultIndex = effectiveBudgets.findIndex(db => db.category === b.category || db.category.replace(/\s+/g, '') === b.category.replace(/\s+/g, ''));
+                    if (defaultIndex !== -1) {
+                        effectiveBudgets[defaultIndex] = b;
+                    } else {
+                        effectiveBudgets.push(b);
+                    }
+                });
+
+                // Filter out permanently deleted categories
+                effectiveBudgets = effectiveBudgets.filter(b => !deletedCategories.includes(b.category) && !deletedCategories.includes(b.category.replace(/\s+/g, '')));
+
+                let totalBudget = 0;
+                let totalSpent = 0;
+                let activeAlert = null;
+                let overspentCategories = [];
+
+                const fixedList = document.getElementById('fixed-expenses-list');
+                const variableList = document.getElementById('variable-expenses-list');
+                if (fixedList) fixedList.innerHTML = '';
+                if (variableList) variableList.innerHTML = '';
+
+                effectiveBudgets.forEach(budget => {
+                    const category = budget.category === 'Rent / EMI' ? 'Rent/EMI' : budget.category;
+                    const limit = budget.monthlyLimit;
+                    const type = budget.type || 'Variable';
+                    
+                    // Filter expenses for this category and current month
+                    const currentMonthExpenses = expenses.filter(e => {
+                        const d = new Date(e.date);
+                        return (e.category === category || e.category.replace(/\s+/g, '') === category.replace(/\s+/g, '')) && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+                    });
+                    
+                    const spent = currentMonthExpenses.reduce((sum, item) => sum + item.amount, 0);
+                    
+                    totalBudget += limit;
+                    totalSpent += spent;
+
+                    const listId = type === 'Fixed' ? 'fixed-expenses-list' : 'variable-expenses-list';
+                    const targetList = document.getElementById(listId);
+                    
+                    if (targetList) {
+                        const ratio = spent / limit;
+                        const percent = Math.min(Math.round(ratio * 100), 100);
+                        
+                        let colorClass = 'var(--success)';
+                        let textClass = 'text-muted';
+                        let statusText = `${percent}% (On Track)`;
+
+                        if (ratio >= 1) {
+                            colorClass = 'var(--danger)';
+                            textClass = 'text-danger';
+                            statusText = `${Math.round(ratio * 100)}% (Over Budget)`;
+                            overspentCategories.push({ category, limit, spent, percent });
+                        } else if (ratio > 0.9) {
+                            colorClass = 'var(--danger)';
+                            textClass = 'text-danger';
+                            statusText = `${percent}% (Critical)`;
+                            if (!activeAlert || activeAlert.type !== 'action') {
+                                activeAlert = { type: 'action', category, limit, spent, percent };
+                            }
+                        } else if (ratio >= 0.8) {
+                            colorClass = 'var(--warning)';
+                            textClass = 'text-warning';
+                            statusText = `${percent}% (Nearing Limit)`;
+                        }
+
+                        // Smart warning if hits 75% before the 25th
+                        if (ratio >= 0.75 && ratio <= 0.9 && overspentCategories.length === 0) {
+                            const now = new Date();
+                            const currentDay = now.getDate();
+                            if (currentDay < 25) {
+                                if (!activeAlert) {
+                                    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                                    const daysLeft = daysInMonth - currentDay;
+                                    const remainingAmount = limit - spent;
+                                    const perDay = remainingAmount / daysLeft;
+                                    activeAlert = { type: 'warning', category, limit, spent, percent, daysLeft, perDay };
+                                }
+                            }
+                        }
+
+                        const wrapper = document.createElement('a');
+                        wrapper.href = `category-details.html?category=${encodeURIComponent(category)}`;
+                        wrapper.className = "progress-wrapper hover-scale block relative";
+                        wrapper.setAttribute('data-category', category);
+                        wrapper.style.textDecoration = "none";
+                        wrapper.style.color = "inherit";
+                        wrapper.innerHTML = `
+                            <div class="progress-info mb-1 flex justify-between items-center">
+                                <span class="font-medium flex items-center gap-2 ${ratio >= 1 ? 'text-danger' : ''}">${getIconForCategory(category)} ${category}</span>
+                                <div class="flex items-center gap-3">
+                                    <span class="${ratio >= 1 ? 'text-danger font-semibold' : ''}">
+                                        ₹${spent.toLocaleString('en-IN', {minimumFractionDigits: 2})} / 
+                                        <span class="hover:text-primary cursor-pointer border-b border-dashed border-gray-400 pb-0.5 inline-flex items-center gap-1" onclick="editCategoryLimit('${category.replace(/'/g, "\\'")}', ${limit}, '${type}', event)" title="Edit Budget Limit">
+                                            ₹${limit.toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="opacity-50"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                        </span>
+                                    </span>
+                                    <button onclick="deleteCategory('${category.replace(/'/g, "\\'")}', event)" class="text-muted hover:text-danger ml-2" style="background: none; border: none; padding: 4px; cursor: pointer; z-index: 10;" title="Delete Category">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="progress-bar mb-1"><div class="progress-fill" style="width: ${percent}%; background-color: ${colorClass};"></div></div>
+                            <div class="progress-status text-xs text-right font-medium ${textClass}">${statusText}</div>
+                        `;
+                        targetList.appendChild(wrapper);
+                    }
+                });
+
+                // Display AI Alert if triggered
+                const alertBox = document.getElementById('ai-suggestion-alert');
+                if (overspentCategories.length > 0 || activeAlert) {
+                    if (alertBox) alertBox.style.display = 'block';
+                    const h3 = document.getElementById('ai-alert-title');
+                    const p = document.getElementById('ai-alert-text');
+                    
+                    if (overspentCategories.length > 0) {
+                        const names = overspentCategories.map(c => `<strong>${c.category}</strong>`).join(', ');
+                        if (h3) h3.innerText = `Action Required: Multiple Overspent Categories`;
+                        if (p) p.innerHTML = `Warning: You have overspent in ${names}. Please review your recent transactions or adjust your budget limits to stay on track towards your savings goals.`;
+                    } else if (activeAlert && activeAlert.type === 'action') {
+                        if (h3) h3.innerText = `Action Required: ${activeAlert.category} Overspending Detected`;
+                        if (p) p.innerHTML = `Your ${activeAlert.category.toLowerCase()} expenses have hit <strong>₹${activeAlert.spent.toLocaleString('en-IN', {minimumFractionDigits: 2})}</strong> this month, exceeding 90% of your ₹${activeAlert.limit.toLocaleString('en-IN', {minimumFractionDigits: 2})} budget.`;
+                    } else if (activeAlert && activeAlert.type === 'warning') {
+                        if (h3) h3.innerText = `Budget Alert: Early Spending Detected`;
+                        if (p) p.innerHTML = `You have used ${activeAlert.percent}% of your <strong>${activeAlert.category}</strong> budget with ${activeAlert.daysLeft} days left in the month. We recommend spending only <strong>₹${activeAlert.perDay.toLocaleString('en-IN', {maximumFractionDigits: 0})}</strong> per day to stay on track.`;
+                    }
+                } else if (alertBox) {
+                    alertBox.style.display = 'none';
+                }
+
+                // Update summary at the top
+                const left = totalBudget - totalSpent;
+                const totalDisplay = document.getElementById('spent-summary');
+                if (totalDisplay) {
+                    totalDisplay.innerText = left >= 0 ? `₹${left.toLocaleString('en-IN', {minimumFractionDigits: 2})}` : `-₹${Math.abs(left).toLocaleString('en-IN', {minimumFractionDigits: 2})}`;
+                    totalDisplay.style.color = left >= 0 ? 'var(--accent-color)' : 'var(--danger)';
+                }
+
+                // Update Header
+                const headerTitle = document.getElementById('budget-month-title');
+                if (headerTitle) {
+                    headerTitle.innerText = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' }) + ' Budget';
+                }
+
+            } catch (err) {
+                console.error('Error fetching data:', err);
+            }
+        }
+
+        function getIconForCategory(cat) {
+            const map = {
+                'Rent/EMI': '🏠', 'Rent / EMI': '🏠', 'Insurance': '🛡️', 'Utilities': '⚡', 'Subscriptions': '🎬',
+                'Dining Out': '🍽️', 'Groceries': '🛒', 'Shopping': '🛍️', 'Transportation': '🚗', 'Miscellaneous': '🎯'
+            };
+            return map[cat] || '📄';
+        }
+
+        async function handleCategorySubmit(e) {
+            e.preventDefault();
+            const category = document.getElementById('new-category-name').value;
+            const limit = parseFloat(document.getElementById('new-category-limit').value);
+            const type = document.getElementById('new-category-type').value;
+
+            try {
+                let budgets = JSON.parse(localStorage.getItem('localBudgets') || '[]');
+                
+                // Check if already exists, then update or push
+                const existingIndex = budgets.findIndex(b => b.category === category);
+                if (existingIndex !== -1) {
+                    budgets[existingIndex] = { ...budgets[existingIndex], monthlyLimit: limit, type };
+                } else {
+                    budgets.push({ category, monthlyLimit: limit, type });
+                }
+                
+                localStorage.setItem('localBudgets', JSON.stringify(budgets));
+                
+                closeCategoryModal();
+                document.getElementById('addCategoryForm').reset();
+                fetchBudgets();
+            } catch (err) {
+                console.error('Error:', err);
+            }
+        }
+
+        function openCategoryModal(type) {
+            document.getElementById('new-category-type').value = type;
+            document.getElementById('categoryModal').style.display = 'flex';
+        }
+
+        function closeCategoryModal() {
+            document.getElementById('categoryModal').style.display = 'none';
+        }
+
+        window.editCategoryLimit = function(category, currentLimit, type, e) {
+            e.preventDefault();
+            e.stopPropagation(); // Prevent navigating to category-details.html
+            
+            const newLimit = prompt(`Update monthly budget limit for ${category} (₹):`, currentLimit);
+            if (newLimit !== null && !isNaN(newLimit) && newLimit.trim() !== '') {
+                let budgets = JSON.parse(localStorage.getItem('localBudgets') || '[]');
+                const existingIndex = budgets.findIndex(b => b.category === category);
+                
+                if (existingIndex !== -1) {
+                    budgets[existingIndex].monthlyLimit = parseFloat(newLimit);
+                } else {
+                    budgets.push({ category, monthlyLimit: parseFloat(newLimit), type });
+                }
+                
+                localStorage.setItem('localBudgets', JSON.stringify(budgets));
+                fetchBudgets(); // Instantly re-render the bars and alerts
+            }
+        };
+
+        async function updateBudget(category, monthlyLimit) {
+            const token = localStorage.getItem('token');
+            try {
+                const response = await fetch('/api/budget', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ category, monthlyLimit })
+                });
+                if (response.ok) {
+                    alert(`Budget for ${category} updated!`);
+                    fetchBudgets();
+                }
+            } catch (err) {
+                console.error('Error updating budget:', err);
+            }
+        }
+        async function deleteCategory(category, e) {
+            e.preventDefault();
+            if (!confirm(`Are you sure you want to permanently delete "${category}" and all its transaction history?`)) return;
+            
+            try {
+                // Remove custom limits from localBudgets
+                let budgets = JSON.parse(localStorage.getItem('localBudgets') || '[]');
+                budgets = budgets.filter(b => b.category !== category);
+                localStorage.setItem('localBudgets', JSON.stringify(budgets));
+                
+                // Remove local expenses related to this category
+                let expenses = JSON.parse(localStorage.getItem('localExpenses') || '[]');
+                expenses = expenses.filter(exp => exp.category !== category);
+                localStorage.setItem('localExpenses', JSON.stringify(expenses));
+                
+                // Track default category deletions persistently locally
+                const deletedStr = localStorage.getItem('deletedCategories');
+                const deletedArr = deletedStr ? JSON.parse(deletedStr) : [];
+                if (!deletedArr.includes(category)) {
+                    deletedArr.push(category);
+                    localStorage.setItem('deletedCategories', JSON.stringify(deletedArr));
+                }
+                
+                fetchBudgets();
+            } catch(err) {
+                console.error('Error deleting category', err);
+                alert('Failed to delete category');
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">F</div>
+                    <div class="logo-text"><span class="logo-text-fin">Fin</span><span
+                            class="logo-text-track">Track</span></div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="dashboard.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                    </span>
+                    Dashboard
+                </a>
+                <a href="budget.html" class="sidebar-link active">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                    </span>
+                    Smart Budget
+                </a>
+                <a href="expenses.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <line x1="12" y1="1" x2="12" y2="23"></line>
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                    </span>
+                    Expenses
+                </a>
+                <a href="goals.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </span>
+                    Goals
+                </a>
+                <a href="loans.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
+                            </path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                        </svg>
+                    </span>
+                    Loans
+                </a>
+                <a href="portfolio.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                    </span>
+                    Portfolio
+                </a>
+                <a href="report.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </span>
+                    AI Advisor Report
+                </a>
+                <a href="score.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                    </span>
+                    Health Score
+                </a>
+                <a href="recommendation.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </span>
+                    Suggestions
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <a href="profile.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                    </span>
+                    Profile
+                </a>
+                <a href="index.html" class="sidebar-link mt-1 text-danger">
+                    <span class="sidebar-icon text-danger">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                    </span>
+                    Log Out
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <div class="page-title">Smart Budget Monitor</div>
+                <div class="user-profile">
+                    <button id="theme-toggle" class="theme-toggle" title="Toggle Dark Mode" aria-label="Toggle Theme">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                        </svg>
+                    </button>
+                    <div class="avatar">JD</div>
+                </div>
+            </header>
+
+            <div class="content-wrapper">
+
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 id="budget-month-title" class="text-2xl mb-1">March 2026 Budget</h2>
+                        <p class="text-muted">Track your fixed and variable spending against your monthly targets.</p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm text-muted">Left to Spend</div>
+                        <div id="spent-summary" class="text-3xl font-bold bg-clip-text" style="color: var(--accent-color);">₹0.00</div>
+                    </div>
+                </div>
+
+                <!-- Intelligent Alerts -->
+                <div id="ai-suggestion-alert" class="card mb-6"
+                    style="display: none; border-left: 4px solid var(--warning); background-color: rgba(245, 158, 11, 0.05);">
+                    <div class="flex items-start gap-3">
+                        <div class="text-warning mt-1">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path
+                                    d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
+                                </path>
+                                <line x1="12" y1="9" x2="12" y2="13"></line>
+                                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 id="ai-alert-title" class="font-semibold text-lg mb-1">Action Required: Overspending Detected</h3>
+                            <p id="ai-alert-text" class="text-sm mb-3">Your expenses have exceeded your budget. This puts your savings goal at risk.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-6">
+
+                    <!-- Fixed Expenses -->
+                    <div class="card">
+                        <div class="card-header border-b pb-3 flex justify-between items-center" style="border-bottom: 1px solid var(--border-color);">
+                            <div>
+                                <h3 class="card-title m-0">Fixed Expenses</h3>
+                                <span class="text-sm font-medium text-muted">Core commitments</span>
+                            </div>
+                            <button class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="openCategoryModal('Fixed')">+ Add Category</button>
+                        </div>
+
+                        <div class="flex-col gap-4 mt-4" id="fixed-expenses-list">
+                            <!-- Category Item -->
+                            <a href="category-details.html?category=Rent/EMI" class="progress-wrapper hover-scale block" data-category="Rent/EMI" style="text-decoration: none; color: inherit;">
+                                <div class="progress-info mb-1">
+                                    <span class="font-medium flex items-center gap-2">🏠 Rent/EMI</span>
+                                    <span>₹0.00 / ₹14,500.00</span>
+                                </div>
+                                <div class="progress-bar mb-1"><div class="progress-fill" style="width: 0%; background-color: var(--success);"></div></div>
+                                <div class="progress-status text-xs text-right text-muted">0% (On Track)</div>
+                            </a>
+
+                            <a href="category-details.html?category=Insurance" class="progress-wrapper hover-scale block" data-category="Insurance" style="text-decoration: none; color: inherit;">
+                                <div class="progress-info mb-1">
+                                    <span class="font-medium flex items-center gap-2">🛡️ Insurance</span>
+                                    <span>₹0.00 / ₹2,500.00</span>
+                                </div>
+                                <div class="progress-bar mb-1"><div class="progress-fill" style="width: 0%; background-color: var(--success);"></div></div>
+                                <div class="progress-status text-xs text-right text-muted">0% (On Track)</div>
+                            </a>
+
+                            <a href="category-details.html?category=Utilities" class="progress-wrapper hover-scale block" data-category="Utilities" style="text-decoration: none; color: inherit;">
+                                <div class="progress-info mb-1">
+                                    <span class="font-medium flex items-center gap-2">⚡ Utilities</span>
+                                    <span>₹0.00 / ₹2,500.00</span>
+                                </div>
+                                <div class="progress-bar mb-1"><div class="progress-fill" style="width: 0%; background-color: var(--success);"></div></div>
+                                <div class="progress-status text-xs text-right text-muted">0% (On Track)</div>
+                            </a>
+
+                            <a href="category-details.html?category=Subscriptions" class="progress-wrapper hover-scale block" data-category="Subscriptions" style="text-decoration: none; color: inherit;">
+                                <div class="progress-info mb-1">
+                                    <span class="font-medium flex items-center gap-2">🎬 Subscriptions</span>
+                                    <span>₹0.00 / ₹1,500.00</span>
+                                </div>
+                                <div class="progress-bar mb-1"><div class="progress-fill" style="width: 0%; background-color: var(--success);"></div></div>
+                                <div class="progress-status text-xs text-right text-muted">0% (On Track)</div>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Variable Expenses -->
+                    <div class="card">
+                        <div class="card-header border-b pb-3 flex justify-between items-center" style="border-bottom: 1px solid var(--border-color);">
+                            <div>
+                                <h3 class="card-title m-0">Variable Expenses</h3>
+                                <span class="text-sm font-medium text-muted">Flexible spending</span>
+                            </div>
+                            <button class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="openCategoryModal('Variable')">+ Add Category</button>
+                        </div>
+
+                        <div class="flex-col gap-4 mt-4" id="variable-expenses-list">
+                            <a href="category-details.html?category=Dining%20Out" class="progress-wrapper hover-scale block" data-category="Dining Out" style="text-decoration: none; color: inherit;">
+                                <div class="progress-info mb-1">
+                                    <span class="font-medium flex items-center gap-2">🍽️ Dining Out</span>
+                                    <span>₹0.00 / ₹4,000.00</span>
+                                </div>
+                                <div class="progress-bar mb-1"><div class="progress-fill" style="width: 0%; background-color: var(--success);"></div></div>
+                                <div class="progress-status text-xs text-right text-muted">0% (On Track)</div>
+                            </a>
+
+                            <a href="category-details.html?category=Groceries" class="progress-wrapper hover-scale block" data-category="Groceries" style="text-decoration: none; color: inherit;">
+                                <div class="progress-info mb-1">
+                                    <span class="font-medium flex items-center gap-2">🛒 Groceries</span>
+                                    <span>₹0.00 / ₹4,000.00</span>
+                                </div>
+                                <div class="progress-bar mb-1"><div class="progress-fill" style="width: 0%; background-color: var(--success);"></div></div>
+                                <div class="progress-status text-xs text-right text-muted">0% (On Track)</div>
+                            </a>
+
+                            <a href="category-details.html?category=Shopping" class="progress-wrapper hover-scale block" data-category="Shopping" style="text-decoration: none; color: inherit;">
+                                <div class="progress-info mb-1">
+                                    <span class="font-medium flex items-center gap-2">🛍️ Shopping</span>
+                                    <span>₹0.00 / ₹3,000.00</span>
+                                </div>
+                                <div class="progress-bar mb-1"><div class="progress-fill" style="width: 0%; background-color: var(--success);"></div></div>
+                                <div class="progress-status text-xs text-right text-muted">0% (On Track)</div>
+                            </a>
+
+                            <a href="category-details.html?category=Transportation" class="progress-wrapper hover-scale block" data-category="Transportation" style="text-decoration: none; color: inherit;">
+                                <div class="progress-info mb-1">
+                                    <span class="font-medium flex items-center gap-2">🚗 Transportation</span>
+                                    <span>₹0.00 / ₹2,000.00</span>
+                                </div>
+                                <div class="progress-bar mb-1"><div class="progress-fill" style="width: 0%; background-color: var(--success);"></div></div>
+                                <div class="progress-status text-xs text-right text-muted">0% (On Track)</div>
+                            </a>
+
+                            <a href="category-details.html?category=Miscellaneous" class="progress-wrapper hover-scale block" data-category="Miscellaneous" style="text-decoration: none; color: inherit;">
+                                <div class="progress-info mb-1">
+                                    <span class="font-medium flex items-center gap-2">🎯 Miscellaneous</span>
+                                    <span>₹0.00 / ₹1,000.00</span>
+                                </div>
+                                <div class="progress-bar mb-1"><div class="progress-fill" style="width: 0%; background-color: var(--success);"></div></div>
+                                <div class="progress-status text-xs text-right text-muted">0% (On Track)</div>
+                            </a>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add Category Modal -->
+    <div id="categoryModal" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 50; align-items: center; justify-content: center; backdrop-filter: blur(2px);">
+        <div class="card" style="width: 100%; max-width: 400px; padding: 1.5rem;">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-lg m-0">Add Custom Category</h3>
+                <button class="btn btn-ghost" style="padding: 0.25rem;" onclick="closeCategoryModal()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <form id="addCategoryForm" onsubmit="handleCategorySubmit(event)">
+                <input type="hidden" id="new-category-type">
+                <div class="form-group">
+                    <label class="form-label">Subject Name</label>
+                    <input type="text" id="new-category-name" class="form-control" placeholder="e.g. Pet Care, Education" required>
+                </div>
+                <div class="form-group mb-6">
+                    <label class="form-label">Monthly Limit (₹)</label>
+                    <input type="number" id="new-category-limit" class="form-control" placeholder="0.00" step="0.01" min="0" required>
+                </div>
+                <button type="submit" class="btn btn-primary w-full" style="width: 100%;">Create Subject</button>
+            </form>
+        </div>
+    </div>
+</body>
+
+</html>

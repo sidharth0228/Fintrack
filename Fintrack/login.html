@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - FinTrack</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="auth-wrapper">
+        <div class="auth-card">
+            <div class="auth-header">
+                <div class="logo justify-center mb-4">
+                    <div class="logo-icon">F</div>
+                    <div class="logo-text"><span class="logo-text-fin">Fin</span><span
+                            class="logo-text-track">Track</span></div>
+                </div>
+                <h2>Welcome Back</h2>
+                <p class="text-muted">Enter your details to access your dashboard.</p>
+            </div>
+
+            <form id="login-form">
+                <div class="form-group">
+                    <label class="form-label" for="email">Email Address</label>
+                    <input type="email" id="email" class="form-control" placeholder="name@example.com" required>
+                </div>
+
+                <div class="form-group">
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="form-label" for="password" style="margin-bottom: 0;">Password</label>
+                        <a href="#" class="text-xs text-info hover:underline">Forgot password?</a>
+                    </div>
+                    <input type="password" id="password" class="form-control" placeholder="••••••••" required>
+                </div>
+
+                <div class="form-group flex items-center gap-1 mb-4">
+                    <input type="checkbox" id="remember">
+                    <label for="remember" class="text-sm">Remember me</label>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Log in</button>
+            </form>
+
+            <script>
+                document.querySelector('#login-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+
+                    const email = document.querySelector('#email').value;
+                    const password = document.querySelector('#password').value;
+
+                    try {
+                        const response = await fetch('/api/auth/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email, password })
+                        });
+
+                        let data;
+                        const contentType = response.headers.get("content-type");
+                        if (contentType && contentType.includes("application/json")) {
+                            data = await response.json();
+                        } else {
+                            data = { message: await response.text() };
+                        }
+
+                        if (response.ok) {
+                            localStorage.setItem('token', data.token);
+                            localStorage.setItem('user', JSON.stringify(data.user));
+                            alert('Login successful!');
+                            window.location.href = 'dashboard.html';
+                        } else {
+                            let detailedError = data.message || 'Login failed. Check your credentials.';
+                            if (data.error) detailedError += `\nError: ${data.error}`;
+                            if (data.tip) detailedError += `\nTip: ${data.tip}`;
+                            alert(detailedError);
+                        }
+                    } catch (err) {
+                        console.error('Login error:', err);
+                        alert('Could not connect to the server. Please ensure backend is running at http://localhost:5000');
+                    }
+                });
+            </script>
+
+            <div class="auth-footer">
+                Don't have an account? <a href="signup.html">Sign up</a>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

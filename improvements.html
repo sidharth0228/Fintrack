@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script>
+        (function () {
+            if (localStorage.getItem('dark-mode') === 'enabled') {
+                document.documentElement.classList.add('dark-mode');
+            }
+        })();
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Actionable Improvements - FinTrack</title>
+    <link rel="stylesheet" href="style.css">
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                const updateIcon = (isDark) => {
+                    themeToggle.innerHTML = isDark
+                        ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`
+                        : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+                };
+
+                updateIcon(document.documentElement.classList.contains('dark-mode'));
+
+                themeToggle.addEventListener('click', () => {
+                    document.documentElement.classList.toggle('dark-mode');
+                    const isDark = document.documentElement.classList.contains('dark-mode');
+                    localStorage.setItem('dark-mode', isDark ? 'enabled' : 'disabled');
+                    updateIcon(isDark);
+                });
+            }
+
+            const user = JSON.parse(localStorage.getItem('user'));
+            if (user && document.querySelector('.avatar')) {
+                document.querySelector('.avatar').innerText = user.name.split(' ').map(n => n[0]).join('').toUpperCase();
+            }
+
+            document.querySelectorAll('a').forEach(link => {
+                if (link.innerText.includes('Log Out')) {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = 'login.html';
+                    });
+                }
+            });
+
+            // --- Conditional Logic for Improvements (Real-time Audit Data) --- //
+            const urlParams = new URLSearchParams(window.location.search);
+            const category = urlParams.get('category') || 'savings';
+
+            const titleMap = {
+                'savings': 'Optimize Your Savings',
+                'debt': 'Accelerate Debt Payoff',
+                'diversification': 'Enhance Portfolio Diversification'
+            };
+            document.getElementById('improvement-title').innerText = titleMap[category] || 'Actionable Improvements';
+
+            const auditRaw = localStorage.getItem('fintrack_audit');
+            let audit = null;
+            if (auditRaw) {
+                try { audit = JSON.parse(auditRaw); } catch (e) { }
+            }
+
+            // Hide all suggestion blocks initially
+            document.querySelectorAll('.suggestion-block').forEach(el => el.style.display = 'none');
+            const targetBlock = document.getElementById(`block-${category}`);
+            if (targetBlock) targetBlock.style.display = 'flex';
+            else document.getElementById('block-savings').style.display = 'flex';
+
+            if (audit) {
+                // Dynamically build suggestions based on actual user data (Indian Context ₹)
+
+                // DEBT DYNAMIC SUGGESTIONS
+                if (category === 'debt' && audit.highInterestDebt > 0) {
+                    const block = document.getElementById('block-debt');
+                    const recoAmount = Math.max(1000, Math.round((audit.discretionaryTotal * 0.2) / 100) * 100);
+                    block.innerHTML = `
+                        <div class="flex items-start gap-4 p-4 rounded-md" style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2);">
+                            <div style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(239, 68, 68, 0.1); color: var(--danger); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.5rem;">
+                                💳
+                            </div>
+                            <div>
+                                <h4 class="font-medium mb-1">Prioritize High-Interest Debt Over Investments</h4>
+                                <p class="text-sm text-muted mb-3">You have ₹${audit.highInterestDebt.toLocaleString('en-IN')} in high-interest liabilities (credit cards or unsecured loans). Carrying this balance negates long-term investment growth.</p>
+                                <ul class="text-sm text-muted mb-4 pl-4" style="list-style-type: decimal;">
+                                    <li class="mb-1"><strong>Step 1:</strong> Freeze non-essential purchases. Review your discretionary spending.</li>
+                                    <li class="mb-1"><strong>Step 2:</strong> Re-allocate ₹${recoAmount.toLocaleString('en-IN')} per month directly into extra debt payments.</li>
+                                    <li><strong>Step 3:</strong> Navigate to Loans, enter the "Pay More" modal for your highest interest Credit Card, and aggressively clear the balance.</li>
+                                </ul>
+                                <a href="loans.html" class="btn btn-outline" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Utilize 'Pay More' Now</a>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // SAVINGS DYNAMIC SUGGESTIONS
+                if (category === 'savings') {
+                    const block = document.getElementById('block-savings');
+                    const tenPercent = Math.round((audit.discretionaryTotal * 0.1) / 100) * 100;
+                    block.innerHTML = `
+                        <div class="flex items-start gap-4 p-4 rounded-md" style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2);">
+                            <div style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.1); color: var(--success); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.5rem;">
+                                🛡️
+                            </div>
+                            <div>
+                                <h4 class="font-medium mb-1">Build Your Emergency Fund Baseline</h4>
+                                <p class="text-sm text-muted mb-3">Your savings ratio is currently ${audit.savingsRatio.toFixed(1)}%. Financial stability requires an emergency fund of 3-6 months' worth of needs.</p>
+                                <ul class="text-sm text-muted mb-4 pl-4" style="list-style-type: decimal;">
+                                    <li class="mb-1"><strong>Step 1:</strong> Identify ₹${tenPercent.toLocaleString('en-IN')} (approx 10% of discretionary spending) to cut, starting with unused subscriptions.</li>
+                                    <li class="mb-1"><strong>Step 2:</strong> Set up a rigid 'Pay Yourself First' rule upon salary credit.</li>
+                                    <li><strong>Step 3:</strong> Park these funds in a Liquid Mutual Fund or Sweep-in FD to prevent impulse usage.</li>
+                                </ul>
+                                <a href="goals.html" class="btn btn-outline" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Setup Emergency Goal</a>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // DIVERSIFICATION DYNAMIC SUGGESTIONS
+                if (category === 'diversification') {
+                    const block = document.getElementById('block-diversification');
+                    block.innerHTML = `
+                        <div class="flex items-start gap-4 p-4 rounded-md" style="background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2);">
+                            <div style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(59, 130, 246, 0.1); color: var(--info); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.5rem;">
+                                📈
+                            </div>
+                            <div>
+                                <h4 class="font-medium mb-1">Increase Mutual Fund / Index SIP Allocation</h4>
+                                <p class="text-sm text-muted mb-3">Your investment diversification rating evaluates at ${audit.diversificationRating.toFixed(1)}/10. With high-interest debt under control, accelerating asset growth is your priority.</p>
+                                <ul class="text-sm text-muted mb-4 pl-4" style="list-style-type: decimal;">
+                                    <li class="mb-1"><strong>Step 1:</strong> Review your current portfolio allocation pie chart to spot heavy concentrations.</li>
+                                    <li class="mb-1"><strong>Step 2:</strong> Increase SIP additions specifically towards diversified equity (e.g. Nifty 50 Index).</li>
+                                    <li><strong>Step 3:</strong> Maintain this long-term stability approach and ignore short-term market noise.</li>
+                                </ul>
+                                <a href="portfolio.html" class="btn btn-outline" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Balance Portfolio Assets</a>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+        });
+    </script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">F</div>
+                    <div class="logo-text"><span class="logo-text-fin">Fin</span><span
+                            class="logo-text-track">Track</span></div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="dashboard.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                    </span>
+                    Dashboard
+                </a>
+                <a href="budget.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                    </span>
+                    Smart Budget
+                </a>
+                <a href="expenses.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <line x1="12" y1="1" x2="12" y2="23"></line>
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                    </span>
+                    Expenses
+                </a>
+                <a href="goals.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </span>
+                    Goals
+                </a>
+                <a href="loans.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
+                            </path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                        </svg>
+                    </span>
+                    Loans
+                </a>
+                <a href="portfolio.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                    </span>
+                    Portfolio
+                </a>
+                <a href="report.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </span>
+                    AI Advisor Report
+                </a>
+                <a href="score.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                    </span>
+                    Health Score
+                </a>
+                <a href="recommendation.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </span>
+                    Suggestions
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <a href="profile.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                    </span>
+                    Profile
+                </a>
+                <a href="index.html" class="sidebar-link mt-1 text-danger">
+                    <span class="sidebar-icon text-danger">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                    </span>
+                    Log Out
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <div class="page-title">
+                    <a href="score.html"
+                        style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 0.5rem;">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <line x1="19" y1="12" x2="5" y2="12"></line>
+                            <polyline points="12 19 5 12 12 5"></polyline>
+                        </svg>
+                        Back to Health Score
+                    </a>
+                </div>
+                <div class="user-profile">
+                    <button id="theme-toggle" class="theme-toggle" title="Toggle Dark Mode" aria-label="Toggle Theme">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                        </svg>
+                    </button>
+                    <div class="avatar">
+                        JD
+                    </div>
+                </div>
+            </header>
+
+            <div class="content-wrapper">
+                <div class="text-center mb-6">
+                    <h2 class="text-2xl mb-1" id="improvement-title">Actionable Improvements</h2>
+                    <p class="text-muted">Targeted suggestions to improve your weakest financial scoring metric.</p>
+                </div>
+
+                <div class="card max-w-2xl mx-auto">
+
+                    <!-- SAVINGS SUGGESTIONS -->
+                    <div id="block-savings" class="suggestion-block flex-col gap-6">
+                        <div class="flex items-start gap-4 p-4 rounded-md"
+                            style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2);">
+                            <div
+                                style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.1); color: var(--success); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M21 21H3v-2l2-2v-4a7.99 7.99 0 0 1 14 0v4l2 2v2z"></path>
+                                    <path d="M12 3a3 3 0 0 0-3 3"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-medium mb-1">Automate Your Savings</h4>
+                                <p class="text-sm text-muted mb-3">Set up a recurring transfer of 15% of your paycheck
+                                    immediately upon receiving it. Treating savings as a bill ensures you 'Pay Yourself
+                                    First'.</p>
+                                <a href="goals.html" class="btn btn-outline"
+                                    style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Set up Auto-Save</a>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4 p-4 rounded-md mt-4"
+                            style="background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2);">
+                            <div
+                                style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(59, 130, 246, 0.1); color: var(--info); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-medium mb-1">Trim Subscription Fat</h4>
+                                <p class="text-sm text-muted mb-3">You have 4 unused subscriptions costing ₹55/mo.
+                                    Canceling them will increase your savings ratio by an estimated 2% instantly.</p>
+                                <a href="expenses.html" class="btn btn-outline"
+                                    style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Audit Subscriptions</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DEBT SUGGESTIONS -->
+                    <div id="block-debt" class="suggestion-block flex-col gap-6">
+                        <div class="flex items-start gap-4 p-4 rounded-md"
+                            style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2);">
+                            <div
+                                style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(239, 68, 68, 0.1); color: var(--danger); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+                                    <polyline points="17 6 23 6 23 12"></polyline>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-medium mb-1">Implement the Debt Avalanche</h4>
+                                <p class="text-sm text-muted mb-3">Your Debt-to-Income is high. Focus all extra payments
+                                    on your highest interest liability (Credit Card A, 22% APR) while paying minimums on
+                                    the rest to save on interest over time.</p>
+                                <a href="loans.html" class="btn btn-outline"
+                                    style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Manage Liabilities</a>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4 p-4 rounded-md mt-4"
+                            style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2);">
+                            <div
+                                style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(245, 158, 11, 0.1); color: var(--warning); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-medium mb-1">Consider Debt Consolidation</h4>
+                                <p class="text-sm text-muted mb-3">You might qualify for a 0% APR balance transfer card
+                                    or a lower-interest personal loan to consolidate your high-interest revolving
+                                    credit.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DIVERSIFICATION SUGGESTIONS -->
+                    <div id="block-diversification" class="suggestion-block flex-col gap-6">
+                        <div class="flex items-start gap-4 p-4 rounded-md"
+                            style="background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2);">
+                            <div
+                                style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(59, 130, 246, 0.1); color: var(--info); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path>
+                                    <path d="M22 12A10 10 0 0 0 12 2v10z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-medium mb-1">Expand into International Markets</h4>
+                                <p class="text-sm text-muted mb-3">Your portfolio is highly concentrated in Domestic
+                                    Equities. Consider broad-market International ETFs to reduce single-country risk.
+                                </p>
+                                <a href="recommendation.html" class="btn btn-outline"
+                                    style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Get Allocation Suggestions</a>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4 p-4 rounded-md mt-4"
+                            style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2);">
+                            <div
+                                style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.1); color: var(--success); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-medium mb-1">Introduce Fixed Income</h4>
+                                <p class="text-sm text-muted mb-3">To lower overall volatility, slowly build a 10-15%
+                                    position in high-quality corporate or government bonds. This acts as a stabilizer
+                                    during market corrections.</p>
+                                <a href="portfolio.html" class="btn btn-outline"
+                                    style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Review Current Assets</a>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script>
+        (function() {
+            if (localStorage.getItem('dark-mode') === 'enabled') {
+                document.documentElement.classList.add('dark-mode');
+            }
+        })();
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Health Score - FinTrack</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                const updateIcon = (isDark) => {
+                    themeToggle.innerHTML = isDark 
+                        ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`
+                        : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+                };
+
+                updateIcon(document.documentElement.classList.contains('dark-mode'));
+
+                themeToggle.addEventListener('click', () => {
+                    document.documentElement.classList.toggle('dark-mode');
+                    const isDark = document.documentElement.classList.contains('dark-mode');
+                    localStorage.setItem('dark-mode', isDark ? 'enabled' : 'disabled');
+                    updateIcon(isDark);
+                });
+            }
+
+            // Sync User Info
+            const user = JSON.parse(localStorage.getItem('user'));
+            if (user && document.querySelector('.avatar')) {
+                document.querySelector('.avatar').innerText = user.name.split(' ').map(n => n[0]).join('').toUpperCase();
+            }
+
+            // Handle Logout
+            document.querySelectorAll('a').forEach(link => {
+                if (link.innerText.includes('Log Out')) {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = 'login.html';
+                    });
+                }
+            });
+
+            // --- FINANCIAL HEALTH ENGINE --- //
+            await calculateHealthScore(token);
+        });
+
+        // Makes it globally accessible to the refresh button
+        window.calculateHealthScore = async function(token) {
+            try {
+                // Get Local Expenses to pass to the backend engine
+                const localExpenses = JSON.parse(localStorage.getItem('localExpenses') || '[]');
+
+                // Fetch unified score from backend using POST route
+                const response = await fetch('/api/health-score', {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ localExpenses })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch health score data from server');
+                }
+
+                const audit = await response.json();
+                const { score, savingsRatio, dtiRatio, diversificationRating, highInterestDebt, incomeTotal, netBalance } = audit;
+
+                // Store audit data for Improvements Generator
+                localStorage.setItem('fintrack_audit', JSON.stringify(audit));
+
+                // Determine lowest category for UI routing
+                let lowestCategory = 'savings';
+                let debtPoints = 20 - Math.min(20, (highInterestDebt / (incomeTotal * 2)) * 20);
+                
+                if ((20 - debtPoints) > (20 - (savingsRatio/20)*20) || highInterestDebt > incomeTotal/2) {
+                    lowestCategory = 'debt';
+                } else if (audit.invPoints < 8 && netBalance > 0) {
+                    lowestCategory = 'diversification';
+                }
+
+                updateUI(audit, lowestCategory);
+            } catch(e) {
+                console.error('Engine error:', e);
+            }
+        };
+
+        function updateUI(audit, lowestCategory) {
+            const { score, savingsRatio, dtiRatio, diversificationRating, incomeTotal, expensesTotal, netBalance, monthlyDebtObligations, uniqueSectors } = audit;
+            const divRating = diversificationRating;
+        
+            // Main Score UI
+            const scoreValEl = document.getElementById('main-score-val');
+            const scoreMsgEl = document.getElementById('main-score-msg');
+            const improvementBtn = document.getElementById('improve-btn');
+            
+            scoreValEl.innerText = score;
+            improvementBtn.href = `improvements.html?category=${lowestCategory}`;
+
+            let colorVars = {
+                red: 'var(--danger, #EF4444)',
+                amber: 'var(--warning, #F59E0B)',
+                emerald: 'var(--success, #10B981)'
+            };
+
+            let colorClass = 'text-success';
+            let colorHex = colorVars.emerald;
+
+            if (score < 50) {
+                colorClass = 'text-danger';
+                colorHex = colorVars.red;
+                scoreMsgEl.innerText = "Needs Attention! Your score indicates high risk areas in debt or savings.";
+            } else if (score <= 75) {
+                colorClass = 'text-warning';
+                colorHex = colorVars.amber;
+                scoreMsgEl.innerHTML = `Good Health! You're on track, but there's room to improve your <strong>${lowestCategory}</strong>.`;
+            } else {
+                scoreMsgEl.innerHTML = `Excellent Health! You're doing great. To push even higher, optimize your <strong>${lowestCategory}</strong>.`;
+            }
+
+            // Apply color classes
+            scoreValEl.className = `score-value ${colorClass}`;
+            document.getElementById('main-score-title').className = `text-xl font-bold ${colorClass} mb-2`;
+            
+            // Dynamic Circular Progress representation
+            const scoreCircle = document.querySelector('.score-circle');
+            if(scoreCircle) scoreCircle.style.borderColor = colorHex;
+
+            // Breakdown Cards
+            // 1. Savings
+            document.getElementById('metric-savings-val').innerText = `${Math.round(savingsRatio)}%`;
+            let savStatus = savingsRatio >= 20 ? 'Great' : (savingsRatio > 10 ? 'Fair' : 'Poor');
+            document.getElementById('metric-savings-badge').innerText = savStatus;
+            document.getElementById('metric-savings-badge').className = `badge ${savingsRatio >= 20 ? 'badge-success' : 'badge-warning'}`;
+            document.getElementById('metric-savings-fill').style.width = `${Math.min(100, Math.max(0, savingsRatio * 2))}%`; 
+            document.getElementById('metric-savings-fill').style.backgroundColor = savingsRatio >= 20 ? colorVars.emerald : colorVars.amber;
+
+            // 2. DTI
+            document.getElementById('metric-dti-val').innerText = `${Math.round(dtiRatio)}%`;
+            let dtiStatus = dtiRatio <= 30 ? 'Great' : (dtiRatio < 45 ? 'Fair' : 'High Risk');
+            document.getElementById('metric-dti-badge').innerText = dtiStatus;
+            document.getElementById('metric-dti-badge').className = `badge ${dtiRatio <= 30 ? 'badge-success' : 'badge-warning'}`;
+            document.getElementById('metric-dti-fill').style.width = `${Math.min(100, Math.max(0, dtiRatio))}%`; 
+            document.getElementById('metric-dti-fill').style.backgroundColor = dtiRatio <= 30 ? colorVars.emerald : colorVars.amber;
+
+            // 3. Diversification
+            document.getElementById('metric-div-val').innerText = `${divRating.toFixed(1)}/10`;
+            let divStatus = divRating >= 8 ? 'Good' : 'Fair';
+            document.getElementById('metric-div-badge').innerText = divStatus;
+            document.getElementById('metric-div-badge').className = `badge ${divRating >= 8 ? 'badge-success' : 'badge-info'}`;
+            document.getElementById('metric-div-fill').style.width = `${divRating * 10}%`; 
+            document.getElementById('metric-div-fill').style.backgroundColor = divRating >= 8 ? colorVars.emerald : colorVars.info;
+
+            // Breakdowns Explanation Insertion
+            document.getElementById('metric-savings-exp').innerHTML = `
+                <div style="padding-top: 8px; border-top: 1px solid var(--border-color); margin-top: 10px;">
+                    <span style="font-weight: 600; display: block; margin-bottom: 4px;">How it's calculated:</span>
+                    (Net Balance / Total Income) × 100<br><br>
+                    <span style="font-weight: 600; display: block; margin-bottom: 4px;">Your Data:</span>
+                    Income: ₹${incomeTotal.toLocaleString('en-IN')} <br>
+                    Expenses: ₹${expensesTotal.toLocaleString('en-IN')} <br>
+                    Net Balance: ₹${netBalance.toLocaleString('en-IN')}
+                </div>
+            `;
+
+            document.getElementById('metric-dti-exp').innerHTML = `
+                <div style="padding-top: 8px; border-top: 1px solid var(--border-color); margin-top: 10px;">
+                    <span style="font-weight: 600; display: block; margin-bottom: 4px;">How it's calculated:</span>
+                    (Monthly Debt EMI / Total Income) × 100<br><br>
+                    <span style="font-weight: 600; display: block; margin-bottom: 4px;">Your Data:</span>
+                    Income: ₹${incomeTotal.toLocaleString('en-IN')} <br>
+                    Monthly Debt: ₹${monthlyDebtObligations.toLocaleString('en-IN')}
+                </div>
+            `;
+
+            document.getElementById('metric-div-exp').innerHTML = `
+                <div style="padding-top: 8px; border-top: 1px solid var(--border-color); margin-top: 10px;">
+                    <span style="font-weight: 600; display: block; margin-bottom: 4px;">How it's calculated:</span>
+                    2 points per unique portfolio sector/asset (Max 10).<br><br>
+                    <span style="font-weight: 600; display: block; margin-bottom: 4px;">Your Data:</span>
+                    Unique Sectors: ${uniqueSectors}
+                </div>
+            `;
+        }
+
+    </script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">F</div>
+                    <div class="logo-text"><span class="logo-text-fin">Fin</span><span
+                            class="logo-text-track">Track</span></div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="dashboard.html" class="sidebar-link"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></span>Dashboard</a>
+                <a href="budget.html" class="sidebar-link"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>Smart Budget</a>
+                <a href="expenses.html" class="sidebar-link"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>Expenses</a>
+                <a href="goals.html" class="sidebar-link"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>Goals</a>
+                <a href="loans.html" class="sidebar-link"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></span>Loans</a>
+                <a href="portfolio.html" class="sidebar-link"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span>Portfolio</a>
+                <a href="report.html" class="sidebar-link"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>AI Advisor Report</a>
+                <a href="score.html" class="sidebar-link active"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></span>Health Score</a>
+                <a href="recommendation.html" class="sidebar-link"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>Suggestions</a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <a href="profile.html" class="sidebar-link"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>Profile</a>
+                <a href="index.html" class="sidebar-link mt-1 text-danger"><span class="sidebar-icon text-danger"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></span>Log Out</a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="page-title">Financial Health Score</div>
+                <div class="user-profile">
+                    <button id="theme-toggle" class="theme-toggle" title="Toggle Dark Mode" aria-label="Toggle Theme">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                        </svg>
+                    </button>
+                    <div class="avatar">JD</div>
+                </div>
+            </header>
+
+            <!-- Score Content -->
+            <div class="content-wrapper">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-2xl mb-1">Your Financial Fitness</h2>
+                        <p class="text-muted">A comprehensive look at your financial well-being based on real-time data.</p>
+                    </div>
+                    <button class="btn btn-outline flex items-center gap-2" onclick="calculateHealthScore(localStorage.getItem('token'))">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                        Refresh Audit
+                    </button>
+                </div>
+
+                <!-- Main Score Display -->
+                <div class="card mb-6 flex justify-center py-6"
+                    style="background: linear-gradient(to right, var(--surface-color), var(--bg-color));">
+                    <div class="flex-col items-center justify-center">
+                        <div class="score-circle mb-4" style="border: 8px solid var(--success); transition: border-color 0.5s;">
+                            <div class="score-content">
+                                <div id="main-score-val" class="score-value text-success">--</div>
+                                <div class="score-label">OUT OF 100</div>
+                            </div>
+                        </div>
+                        <div class="text-center max-w-md mx-auto" style="max-width: 400px;">
+                            <h3 id="main-score-title" class="text-xl font-bold text-success mb-2">Analyzing...</h3>
+                            <p id="main-score-msg" class="text-muted text-sm mb-4">Crunching the numbers on your aggregated financial metrics...</p>
+                            <a id="improve-btn" href="improvements.html" class="btn btn-primary" style="display:inline-block; width: 100%; text-decoration:none; text-align:center;">Improve Your Score</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Breakdown Metrics -->
+                <h3 class="text-xl mb-4">Score Breakdown</h3>
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    <!-- Metric 1 -->
+                    <div class="card">
+                        <div class="flex justify-between items-center mb-2">
+                            <h4 class="font-medium">Savings Ratio</h4>
+                            <span id="metric-savings-badge" class="badge badge-success">--</span>
+                        </div>
+                        <div id="metric-savings-val" class="text-2xl font-bold text-primary mb-1">-%</div>
+                        <p class="text-xs text-muted mb-4">Target: &gt;20%</p>
+                        <div class="progress-bar mb-2">
+                            <div id="metric-savings-fill" class="progress-fill" style="width: 0%; background-color: var(--success); transition: width 1s;"></div>
+                        </div>
+                        <div id="metric-savings-exp" class="text-xs text-muted"></div>
+                    </div>
+
+                    <!-- Metric 2 -->
+                    <div class="card">
+                        <div class="flex justify-between items-center mb-2">
+                            <h4 class="font-medium">Debt-to-Income</h4>
+                            <span id="metric-dti-badge" class="badge badge-warning">--</span>
+                        </div>
+                        <div id="metric-dti-val" class="text-2xl font-bold text-primary mb-1">-%</div>
+                        <p class="text-xs text-muted mb-4">Target: &lt;30%</p>
+                        <div class="progress-bar mb-2">
+                            <div id="metric-dti-fill" class="progress-fill" style="width: 0%; background-color: var(--warning); transition: width 1s;"></div>
+                        </div>
+                        <div id="metric-dti-exp" class="text-xs text-muted"></div>
+                    </div>
+
+                    <!-- Metric 3 -->
+                    <div class="card">
+                        <div class="flex justify-between items-center mb-2">
+                            <h4 class="font-medium">Diversification</h4>
+                            <span id="metric-div-badge" class="badge badge-info">--</span>
+                        </div>
+                        <div id="metric-div-val" class="text-2xl font-bold text-primary mb-1">-.-/10</div>
+                        <p class="text-xs text-muted mb-4">Target: &gt;8.0</p>
+                        <div class="progress-bar mb-2">
+                            <div id="metric-div-fill" class="progress-fill" style="width: 0%; background-color: var(--info); transition: width 1s;"></div>
+                        </div>
+                        <div id="metric-div-exp" class="text-xs text-muted"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

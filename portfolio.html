@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script>
+        (function() {
+            if (localStorage.getItem('dark-mode') === 'enabled') {
+                document.documentElement.classList.add('dark-mode');
+            }
+        })();
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio - FinTrack</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <style>
+        .asset-table th, .asset-table td {
+            text-align: left;
+            padding: 12px 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .asset-table th { font-weight: 600; color: var(--text-color); }
+        .action-btn { background: none; border: none; cursor: pointer; padding: 4px; }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+        }
+        .modal-content {
+            background-color: var(--surface-color);
+            margin: 5% auto;
+            padding: 32px;
+            border-radius: var(--radius-lg);
+            width: 500px;
+            max-width: 90%;
+            box-shadow: var(--shadow-xl);
+            border: 1px solid var(--border-color);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .sync-btn { background: linear-gradient(135deg, #10B981 0%, #059669 100%); color: white; border: none; }
+        .ai-btn { background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%); color: white; border: none; }
+    </style>
+    <script>
+        let currentPortfolioData = {};
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                const updateIcon = (isDark) => {
+                    themeToggle.innerHTML = isDark 
+                        ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`
+                        : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+                };
+                updateIcon(document.documentElement.classList.contains('dark-mode'));
+                themeToggle.addEventListener('click', () => {
+                    document.documentElement.classList.toggle('dark-mode');
+                    const isDark = document.documentElement.classList.contains('dark-mode');
+                    localStorage.setItem('dark-mode', isDark ? 'enabled' : 'disabled');
+                    updateIcon(isDark);
+                });
+            }
+
+            const user = JSON.parse(localStorage.getItem('user'));
+            if (user && document.querySelector('.avatar')) {
+                document.querySelector('.avatar').innerText = user.name.split(' ').map(n => n[0]).join('').toUpperCase();
+            }
+
+            // Handle Logout
+            document.querySelectorAll('a').forEach(link => {
+                if (link.innerText.includes('Log Out')) {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = 'login.html';
+                    });
+                }
+            });
+
+            fetchPortfolioData();
+        });
+
+        async function fetchPortfolioData() {
+            try {
+                const response = await fetch('/api/stocks', {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                if (!response.ok) throw new Error('Failed to fetch portfolio');
+                const data = await response.json();
+                currentPortfolioData = data;
+
+                renderStocks(data.syncedStocks, data.manualStocks);
+                renderFunds(data.mutualFunds);
+                renderProperties(data.properties);
+                updateAggregates(data);
+
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function renderStocks(synced, manual) {
+            const tbody = document.getElementById('stocks-tbody');
+            tbody.innerHTML = '';
+            
+            const allStocks = [
+                ...synced.map(s => ({ name: s.tradingsymbol, invested: s.averageprice * s.quantity, current: s.ltp * s.quantity, desc: 'Synced' })),
+                ...manual.map(s => ({ name: s.name, invested: s.purchasePrice, current: s.currentPrice, desc: s.symbol }))
+            ];
+
+            if (allStocks.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4">No stocks found</td></tr>';
+                return;
+            }
+
+            allStocks.forEach(s => {
+                const gain = s.invested > 0 ? ((s.current - s.invested) / s.invested) * 100 : 0;
+                tbody.insertAdjacentHTML('beforeend', `
+                    <tr>
+                        <td><div class="font-medium">${s.name}</div><div class="text-xs text-muted">${s.desc}</div></td>
+                        <td>₹${s.invested.toLocaleString('en-IN')}</td>
+                        <td class="font-semibold">₹${s.current.toLocaleString('en-IN')}</td>
+                        <td class="${gain >= 0 ? 'text-success' : 'text-danger'}">${gain >= 0 ? '+' : ''}${gain.toFixed(2)}%</td>
+                        <td class="text-right"><button class="action-btn">🗑️</button></td>
+                    </tr>
+                `);
+            });
+        }
+
+        function renderFunds(funds) {
+            const tbody = document.getElementById('mutual-tbody');
+            tbody.innerHTML = funds.length ? '' : '<tr><td colspan="5" class="text-center py-4">No funds found</td></tr>';
+            funds.forEach(f => {
+                const gain = f.investedAmount > 0 ? ((f.currentValue - f.investedAmount) / f.investedAmount) * 100 : 0;
+                tbody.insertAdjacentHTML('beforeend', `
+                    <tr>
+                        <td><div class="font-medium">${f.name}</div><div class="text-xs text-muted">${f.type}</div></td>
+                        <td>₹${f.investedAmount.toLocaleString('en-IN')}</td>
+                        <td class="font-semibold">₹${f.currentValue.toLocaleString('en-IN')}</td>
+                        <td class="${gain >= 0 ? 'text-success' : 'text-danger'}">${gain >= 0 ? '+' : ''}${gain.toFixed(2)}%</td>
+                        <td class="text-right"><button class="action-btn">🗑️</button></td>
+                    </tr>
+                `);
+            });
+        }
+
+        function renderProperties(props) {
+            const tbody = document.getElementById('realestate-tbody');
+            tbody.innerHTML = props.length ? '' : '<tr><td colspan="5" class="text-center py-4">No properties found</td></tr>';
+            props.forEach(p => {
+                const gain = p.purchasePrice > 0 ? ((p.estimatedValue - p.purchasePrice) / p.purchasePrice) * 100 : 0;
+                tbody.insertAdjacentHTML('beforeend', `
+                    <tr>
+                        <td><div class="font-medium">${p.name}</div><div class="text-xs text-muted">${p.propertyType}</div></td>
+                        <td>₹${p.purchasePrice.toLocaleString('en-IN')}</td>
+                        <td class="font-semibold">₹${p.estimatedValue.toLocaleString('en-IN')}</td>
+                        <td class="${gain >= 0 ? 'text-success' : 'text-danger'}">${gain >= 0 ? '+' : ''}${gain.toFixed(2)}%</td>
+                        <td class="text-right"><button class="action-btn">🗑️</button></td>
+                    </tr>
+                `);
+            });
+        }
+
+        function updateAggregates(data) {
+            let totalVal = 0;
+            let totalInv = 0;
+
+            const calc = (arr, invKey, curKey) => arr.forEach(x => { totalInv += x[invKey] || 0; totalVal += x[curKey] || 0; });
+            
+            const syncedStacksVal = data.syncedStocks.reduce((sum, s) => sum + (s.ltp * s.quantity), 0);
+            const syncedStacksInv = data.syncedStocks.reduce((sum, s) => sum + (s.averageprice * s.quantity), 0);
+            
+            totalVal += syncedStacksVal;
+            totalInv += syncedStacksInv;
+            
+            calc(data.manualStocks, 'purchasePrice', 'currentPrice');
+            calc(data.mutualFunds, 'investedAmount', 'currentValue');
+            calc(data.properties, 'purchasePrice', 'estimatedValue');
+
+            const ret = totalInv > 0 ? ((totalVal - totalInv) / totalInv) * 100 : 0;
+
+            document.getElementById('total-portfolio-value').innerText = `₹${totalVal.toLocaleString('en-IN')}`;
+            document.getElementById('total-portfolio-return').innerHTML = `<span class="${ret >= 0 ? 'text-success' : 'text-danger'}">${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%</span>`;
+            
+            document.getElementById('card-st-val').innerText = `₹${(syncedStacksVal + data.manualStocks.reduce((s,x)=>s+x.currentPrice,0)).toLocaleString('en-IN')}`;
+            document.getElementById('card-mf-val').innerText = `₹${data.mutualFunds.reduce((s,x)=>s+x.currentValue,0).toLocaleString('en-IN')}`;
+            document.getElementById('card-re-val').innerText = `₹${data.properties.reduce((s,x)=>s+x.estimatedValue,0).toLocaleString('en-IN')}`;
+        }
+
+        async function openAddModal(type) {
+            const modal = document.getElementById('addAssetModal');
+            const title = document.getElementById('modalTitle');
+            const form = document.getElementById('addAssetForm');
+            
+            form.setAttribute('data-type', type);
+            title.innerText = type === 'stocks' ? 'Add Manual Stock' : type === 'mutual' ? 'Add Mutual Fund' : 'Add Property';
+            
+            document.getElementById('field-extra').style.display = type === 'realestate' ? 'block' : 'none';
+            document.getElementById('field-symbol').placeholder = type === 'stocks' ? 'Ticker (e.g. RELIANCE)' : 'Type (e.g. Equity/Debt)';
+            
+            modal.style.display = 'block';
+        }
+
+        function closeAddModal() {
+            document.getElementById('addAssetModal').style.display = 'none';
+            document.getElementById('addAssetForm').reset();
+        }
+
+        async function handleAddAsset(e) {
+            e.preventDefault();
+            const type = e.target.getAttribute('data-type');
+            const payload = {
+                name: document.getElementById('asset-name').value,
+                invested: parseFloat(document.getElementById('asset-invested').value),
+                currentValue: parseFloat(document.getElementById('asset-current').value),
+                type: document.getElementById('asset-symbol').value,
+                location: document.getElementById('asset-extra').value
+            };
+
+            const endpoint = type === 'stocks' ? '/api/stocks/manual-stock' : type === 'mutual' ? '/api/stocks/mutual-fund' : '/api/stocks/property';
+
+            try {
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json' 
+                    },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    closeAddModal();
+                    fetchPortfolioData();
+                } else {
+                    alert('Save failed');
+                }
+            } catch (err) {
+                alert('Connection error');
+            }
+        }
+
+        function goToAIAdvisor() {
+            window.location.href = 'report.html';
+        }
+
+        function openAngelOneModal() {
+            document.getElementById('angelOneModal').style.display = 'block';
+        }
+
+        async function handleAngelOneSync(e) {
+            e.preventDefault();
+            const apiKey = document.getElementById('angel-api-key').value;
+            if(!apiKey) return;
+            
+            const btn = document.getElementById('angel-sync-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = 'Authenticating with AngelOne...';
+            btn.disabled = true;
+
+            try {
+                // Proceed with fetching portfolio syncing
+                const res = await fetch('/api/stocks/sync', {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ apiKey: apiKey })
+                });
+                if (res.ok) {
+                    btn.innerHTML = '✅ Sync Successful!';
+                    setTimeout(() => {
+                        document.getElementById('angelOneModal').style.display = 'none';
+                        btn.innerHTML = originalText;
+                        btn.disabled = false;
+                        document.getElementById('angel-api-key').value = '';
+                        fetchPortfolioData();
+                    }, 1000);
+                } else {
+                    alert('Sync Failed. Ensure backend is running.');
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                alert('AngelOne Sync Failed.');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        window.onclick = (e) => { 
+            if(e.target.id === 'addAssetModal') closeAddModal(); 
+            if(e.target.id === 'angelOneModal') document.getElementById('angelOneModal').style.display = 'none';
+        };
+    </script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">F</div>
+                    <div class="logo-text"><span class="logo-text-fin">Fin</span><span class="logo-text-track">Track</span></div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="dashboard.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                    </span> Dashboard
+                </a>
+                <a href="budget.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>
+                    Smart Budget
+                </a>
+                <a href="expenses.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>
+                    Expenses
+                </a>
+                <a href="goals.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>
+                    Goals
+                </a>
+                <a href="loans.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></span>
+                    Loans
+                </a>
+                <a href="portfolio.html" class="sidebar-link active">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span>
+                    Portfolio
+                </a>
+                <a href="report.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>
+                    AI Advisor Report
+                </a>
+                <a href="score.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></span>
+                    Health Score
+                </a>
+                <a href="recommendation.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>
+                    Suggestions
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <a href="profile.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>
+                    Profile
+                </a>
+                <a href="index.html" class="sidebar-link mt-1 text-danger">
+                    <span class="sidebar-icon text-danger"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></span>
+                    Log Out
+                </a>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="topbar">
+                <div class="page-title">Investment Portfolio</div>
+                <div class="user-profile">
+                    <button id="theme-toggle" class="theme-toggle">🌓</button>
+                    <div class="avatar">JD</div>
+                </div>
+            </header>
+
+            <div class="content-wrapper">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-2xl mb-1">Total Portfolio Value</h2>
+                        <div class="text-4xl font-bold text-primary" id="total-portfolio-value">₹0.00</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm text-muted">All Time Return</div>
+                        <div class="text-2xl font-bold" id="total-portfolio-return">0%</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-4 gap-4 mb-6">
+                    <div class="card p-4 border-t-4 border-blue-500">
+                        <div class="text-sm text-muted">Stocks</div>
+                        <div class="text-xl font-bold" id="card-st-val">₹0</div>
+                    </div>
+                    <div class="card p-4 border-t-4 border-green-500">
+                        <div class="text-sm text-muted">Mutual Funds</div>
+                        <div class="text-xl font-bold" id="card-mf-val">₹0</div>
+                    </div>
+                    <div class="card p-4 border-t-4 border-yellow-500">
+                        <div class="text-sm text-muted">Gold/Silver</div>
+                        <div class="text-xl font-bold">₹2,45,000</div>
+                    </div>
+                    <div class="card p-4 border-t-4 border-purple-500">
+                        <div class="text-sm text-muted">Real Estate</div>
+                        <div class="text-xl font-bold" id="card-re-val">₹0</div>
+                    </div>
+                </div>
+
+                <div class="card mb-6">
+                    <div class="card-header flex justify-between items-center">
+                        <h3 class="card-title">Asset Breakdown</h3>
+                        <div class="flex gap-2">
+                            <button class="btn ai-btn" onclick="goToAIAdvisor()">AI Analyst Report</button>
+                            <button id="sync-stocks-btn" class="btn sync-btn" onclick="openAngelOneModal()">Sync Portfolio</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Real Estate -->
+                <div class="card mb-6">
+                    <div class="card-header flex justify-between items-center mb-4">
+                        <h3 class="card-title m-0">Real Estate Assets</h3>
+                        <button class="btn btn-primary" onclick="openAddModal('realestate')">+ Add Property</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="asset-table" style="width: 100%;">
+                            <thead><tr><th>Property</th><th>Invested</th><th>Current</th><th>Growth</th><th></th></tr></thead>
+                            <tbody id="realestate-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Stocks -->
+                <div class="card mb-6">
+                    <div class="card-header flex justify-between items-center mb-4">
+                        <h3 class="card-title m-0">Stocks (NSE/BSE)</h3>
+                        <button class="btn btn-primary" onclick="openAddModal('stocks')">+ Manual Add</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="asset-table" style="width: 100%;">
+                            <thead><tr><th>Stock</th><th>Invested</th><th>Current</th><th>Returns</th><th></th></tr></thead>
+                            <tbody id="stocks-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Mutual Funds -->
+                <div class="card mb-6">
+                    <div class="card-header flex justify-between items-center mb-4">
+                        <h3 class="card-title m-0">Mutual Funds</h3>
+                        <button class="btn btn-primary" onclick="openAddModal('mutual')">+ Add Fund</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="asset-table" style="width: 100%;">
+                            <thead><tr><th>Fund Name</th><th>Invested</th><th>Current</th><th>Returns</th><th></th></tr></thead>
+                            <tbody id="mutual-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal for Adding Assets -->
+    <div id="addAssetModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle" class="m-0">Add Asset</h3>
+                <span style="cursor:pointer; font-size:1.5rem;" onclick="closeAddModal()">&times;</span>
+            </div>
+            <form id="addAssetForm" onsubmit="handleAddAsset(event)">
+                <div class="form-group mb-3">
+                    <label class="form-label">Asset Name</label>
+                    <input type="text" id="asset-name" class="form-control" placeholder="e.g. Reliance Industries" required>
+                </div>
+                <div class="form-group mb-3">
+                    <label class="form-label">Ticker / Type</label>
+                    <input type="text" id="asset-symbol" class="form-control" placeholder="e.g. RELIANCE">
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label">Invested (₹)</label>
+                        <input type="number" id="asset-invested" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Current Value (₹)</label>
+                        <input type="number" id="asset-current" class="form-control" required>
+                    </div>
+                </div>
+                <div class="form-group mb-4" id="field-extra" style="display:none;">
+                    <label class="form-label">Location / Address</label>
+                    <input type="text" id="asset-extra" class="form-control" placeholder="e.g. Bandra, Mumbai">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Add to Portfolio</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal for Angel One Connect -->
+    <div id="angelOneModal" class="modal">
+        <div class="modal-content" style="width: 450px; text-align: center;">
+            <div class="modal-header" style="justify-content: center; position: relative; border-bottom: none; margin-bottom: 0px;">
+                <h3 class="m-0 text-2xl font-bold" style="color: #FF5722;">Connect AngelOne</h3>
+                <span style="cursor:pointer; font-size:1.5rem; position: absolute; right: 0; top: -10px;" onclick="document.getElementById('angelOneModal').style.display='none'">&times;</span>
+            </div>
+            <p class="text-sm text-muted mb-4 mt-2">You have already provided your email and password. Please enter your SmartAPI Key to remotely fetch your holdings securely.</p>
+            <form id="angelOneForm" onsubmit="handleAngelOneSync(event)">
+                <div class="form-group mb-4" style="text-align: left;">
+                    <label class="form-label font-medium">SmartAPI Key</label>
+                    <input type="password" id="angel-api-key" class="form-control" placeholder="Enter AngelOne SmartAPI Key" required style="padding: 10px; font-family: monospace;">
+                </div>
+                <button type="submit" id="angel-sync-btn" class="btn sync-btn" style="width: 100%; padding: 12px; font-size: 1rem; border-radius: 8px;">⚡ Connect & Sync Holdings</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script>
+        (function() {
+            if (localStorage.getItem('dark-mode') === 'enabled') {
+                document.documentElement.classList.add('dark-mode');
+            }
+        })();
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loans - FinTrack</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+        }
+        .modal-content {
+            background-color: var(--surface-color);
+            margin: 5% auto;
+            padding: 32px;
+            border-radius: var(--radius-lg);
+            width: 500px;
+            max-width: 90%;
+            box-shadow: var(--shadow-xl);
+            border: 1px solid var(--border-color);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+    </style>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                const updateIcon = (isDark) => {
+                    themeToggle.innerHTML = isDark 
+                        ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`
+                        : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+                };
+                updateIcon(document.documentElement.classList.contains('dark-mode'));
+                themeToggle.addEventListener('click', () => {
+                    document.documentElement.classList.toggle('dark-mode');
+                    localStorage.setItem('dark-mode', document.documentElement.classList.contains('dark-mode') ? 'enabled' : 'disabled');
+                    updateIcon(document.documentElement.classList.contains('dark-mode'));
+                });
+            }
+
+            const user = JSON.parse(localStorage.getItem('user'));
+            if (user && document.querySelector('.avatar')) {
+                document.querySelector('.avatar').innerText = user.name.split(' ').map(n => n[0]).join('').toUpperCase();
+            }
+
+            // Handle Logout
+            document.querySelectorAll('a').forEach(link => {
+                if (link.innerText.includes('Log Out')) {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = 'login.html';
+                    });
+                }
+            });
+
+            fetchLoansData();
+        });
+
+        const API_URL = window.location.protocol === 'file:' || window.location.port !== '5000' 
+            ? 'http://localhost:5000' 
+            : '';
+
+        async function fetchLoansData() {
+            try {
+                const response = await fetch(`${API_URL}/api/loans`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Failed to fetch data');
+                }
+                const data = await response.json();
+                
+                renderLoans(data.loans);
+                renderCards(data.cards);
+                updateOverview(data);
+
+            } catch (err) {
+                console.error(err);
+                if (err.message === 'Token is not valid') {
+                    alert('Session expired. Please log in again.');
+                    window.location.href = 'login.html';
+                }
+            }
+        }
+        function renderLoans(loans) {
+            const tbody = document.getElementById('loans-tbody');
+            tbody.innerHTML = loans.length ? '' : '<tr><td colspan="6" class="text-center py-4">No loans found</td></tr>';
+            
+            loans.forEach(l => {
+                const totalContractualValue = l.monthlyEMI * l.tenure;
+                
+                // Graceful handling for old records that stored Principal in remainingAmount
+                let outstanding = l.remainingAmount;
+                if (outstanding <= l.totalAmount && totalContractualValue > l.totalAmount && l._id) {
+                    // Approximate backward compatibility
+                    const paymentsAssumed = Math.floor((l.totalAmount - outstanding) / l.monthlyEMI) || 0;
+                    outstanding = Math.max(0, totalContractualValue - (paymentsAssumed * l.monthlyEMI));
+                }
+                
+                const totalPaid = Math.max(0, totalContractualValue - outstanding);
+                const progress = totalContractualValue > 0 ? (totalPaid / totalContractualValue) * 100 : 0;
+                
+                // standard amortization formula equivalent visualization
+                tbody.insertAdjacentHTML('beforeend', `
+                    <tr>
+                        <td><div class="font-medium text-primary">${l.loanName}</div></td>
+                        <td>
+                            <div class="font-semibold">₹${l.totalAmount.toLocaleString('en-IN')}</div>
+                            <div class="text-xs text-muted">Final: ₹${totalContractualValue.toLocaleString('en-IN')}</div>
+                        </td>
+                        <td><span class="badge badge-warning">${l.interestRate}% APR</span></td>
+                        <td class="font-semibold text-danger">₹${l.monthlyEMI.toLocaleString('en-IN')}</td>
+                        <td>
+                            <div class="progress-info mb-1" style="font-size: 0.75rem;">₹${totalPaid.toLocaleString('en-IN')} Paid / ₹${outstanding.toLocaleString('en-IN')} Left</div>
+                            <div class="progress-bar" style="height: 6px;"><div class="progress-fill" style="width: ${progress}%; background: var(--primary-color);"></div></div>
+                        </td>
+                        <td class="text-right">
+                             <button class="btn btn-sm btn-ghost text-primary p-1" onclick="openEditModal('${l._id}', '${l.loanName}', ${totalPaid})" title="Edit Loan">✏️</button>
+                             <button class="btn btn-sm btn-ghost text-success p-1" onclick="openPayModal('${l._id}', '${l.loanName}')" title="Pay Extra">💰</button>
+                             <button class="text-muted hover:text-danger p-1" onclick="deleteLoan('${l._id}')" title="Delete">🗑️</button>
+                        </td>
+                    </tr>
+                `);
+            });
+        }
+
+        function renderCards(cards) {
+            const tbody = document.getElementById('cards-tbody');
+            tbody.innerHTML = cards.length ? '' : '<tr><td colspan="5" class="text-center py-4">No cards found</td></tr>';
+            
+            cards.forEach(c => {
+                const amountPaid = c.amountPaid || 0;
+                tbody.insertAdjacentHTML('beforeend', `
+                    <tr>
+                        <td>
+                            <div class="font-medium text-primary">${c.cardName}</div>
+                            <div class="text-xs text-muted">Paid: ₹${amountPaid.toLocaleString('en-IN')}</div>
+                        </td>
+                        <td class="font-semibold text-danger">₹${c.totalDue.toLocaleString('en-IN')}</td>
+                        <td class="text-warning">₹${c.minimumPayment.toLocaleString('en-IN')}</td>
+                        <td>${new Date(c.dueDate).toLocaleDateString('en-IN')}</td>
+                        <td class="text-right">
+                            <button class="btn btn-sm btn-ghost text-primary p-1" onclick="openEditCardModal('${c._id}', '${c.cardName}', ${c.totalDue}, ${amountPaid})" title="Edit Card">✏️</button>
+                            <button class="btn btn-sm btn-ghost text-success p-1" onclick="openPayCardModal('${c._id}', '${c.cardName}', ${c.totalDue})" title="Pay Card">💰</button>
+                            <button class="text-muted hover:text-danger p-1" onclick="deleteCard('${c._id}')" title="Delete">🗑️</button>
+                        </td>
+                    </tr>
+                `);
+            });
+        }
+
+        function updateOverview(data) {
+            const totalLoanDebt = data.loans.reduce((sum, l) => sum + l.remainingAmount, 0);
+            const totalCardDue = data.cards.reduce((sum, c) => sum + c.totalDue, 0);
+            const totalEmi = data.loans.reduce((sum, l) => sum + l.monthlyEMI, 0);
+            
+            document.getElementById('overview-total-debt').innerText = `₹${(totalLoanDebt + totalCardDue).toLocaleString('en-IN')}`;
+            document.getElementById('overview-emi').innerText = `₹${totalEmi.toLocaleString('en-IN')}`;
+            document.getElementById('overview-card-dues').innerText = `₹${totalCardDue.toLocaleString('en-IN')}`;
+            
+            const totalOriginal = data.loans.reduce((sum, l) => sum + l.totalAmount, 0);
+            const totalRemaining = data.loans.reduce((sum, l) => sum + l.remainingAmount, 0);
+            const progress = totalOriginal > 0 ? ((totalOriginal - totalRemaining) / totalOriginal) * 100 : 0;
+            
+            document.getElementById('overview-progress-text').innerText = `${progress.toFixed(1)}%`;
+            document.getElementById('overview-progress-bar').style.width = `${progress}%`;
+        }
+        function openModal(id) { document.getElementById(id).style.display = 'block'; }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        
+        let currentPayLoanId = null;
+        function openPayModal(id, name) {
+            currentPayLoanId = id;
+            document.getElementById('pay-loan-name').innerText = name;
+            openModal('payModal');
+        }
+
+        let currentEditLoanId = null;
+        function openEditModal(id, name, currentPaid) {
+            currentEditLoanId = id;
+            document.getElementById('edit-loan-name').innerText = name;
+            document.getElementById('edit-total-paid').value = currentPaid;
+            openModal('editLoanModal');
+        }
+
+        let currentEditCardId = null;
+        function openEditCardModal(id, name, currentDue, currentPaid) {
+            currentEditCardId = id;
+            document.getElementById('edit-card-name').innerText = name;
+            document.getElementById('edit-card-due').value = currentDue;
+            document.getElementById('edit-card-paid').value = currentPaid;
+            openModal('editCardModal');
+        }
+
+        async function handleEditCard(e) {
+            e.preventDefault();
+            const btn = e.target.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerText = 'Updating...';
+
+            try {
+                const currentDue = parseFloat(document.getElementById('edit-card-due').value);
+                const amountPaid = parseFloat(document.getElementById('edit-card-paid').value);
+                const res = await fetch(`${API_URL}/api/loans/cards/${currentEditCardId}/edit`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ currentDue, amountPaid })
+                });
+                
+                if (res.ok) { 
+                    closeModal('editCardModal'); 
+                    fetchLoansData(); 
+                } else {
+                    const data = await res.json();
+                    alert('Error: ' + (data.message || 'Failed to edit card'));
+                }
+            } catch (err) {
+                alert('Connection Error');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Update Card';
+            }
+        }
+
+        let currentPayCardId = null;
+        let currentPayCardMaxDue = 0;
+        function openPayCardModal(id, name, totalDue) {
+            currentPayCardId = id;
+            currentPayCardMaxDue = totalDue;
+            document.getElementById('pay-card-name').innerText = name;
+            document.getElementById('pay-card-amount').value = '';
+            document.getElementById('pay-card-amount').max = totalDue;
+            openModal('payCardModal');
+        }
+
+        async function handlePayCard(e) {
+            e.preventDefault();
+            const amount = parseFloat(document.getElementById('pay-card-amount').value);
+            
+            if (amount > currentPayCardMaxDue) {
+                alert(`Payment amount (₹${amount}) cannot exceed current Total Due (₹${currentPayCardMaxDue})`);
+                return;
+            }
+
+            const btn = e.target.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerText = 'Processing...';
+
+            try {
+                const res = await fetch(`${API_URL}/api/loans/cards/${currentPayCardId}/pay`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount })
+                });
+                
+                if (res.ok) { 
+                    closeModal('payCardModal'); 
+                    fetchLoansData(); 
+                    e.target.reset();
+                } else {
+                    const data = await res.json();
+                    alert('Error: ' + (data.message || 'Failed to process payment'));
+                }
+            } catch (err) {
+                alert('Connection Error: Backend server unreachable');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Confirm Payment';
+            }
+        }
+
+        async function handleEditLoan(e) {
+            e.preventDefault();
+            const btn = e.target.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerText = 'Updating...';
+
+            try {
+                const totalPaid = parseFloat(document.getElementById('edit-total-paid').value);
+                const res = await fetch(`${API_URL}/api/loans/${currentEditLoanId}/edit`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ totalPaid })
+                });
+                
+                if (res.ok) { 
+                    closeModal('editLoanModal'); 
+                    fetchLoansData(); 
+                } else {
+                    const data = await res.json();
+                    alert('Error: ' + (data.message || 'Failed to edit loan'));
+                }
+            } catch (err) {
+                alert('Connection Error');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Update Loan';
+            }
+        }
+
+        async function handlePayExtra(e) {
+            e.preventDefault();
+            const btn = e.target.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerText = 'Processing...';
+
+            try {
+                const amount = parseFloat(document.getElementById('pay-amount').value);
+                const res = await fetch(`${API_URL}/api/loans/${currentPayLoanId}/pay`, {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`, 
+                        'Content-Type': 'application/json' 
+                    },
+                    body: JSON.stringify({ amount })
+                });
+                
+                if (res.ok) { 
+                    closeModal('payModal'); 
+                    fetchLoansData(); 
+                    e.target.reset();
+                } else {
+                    const data = await res.json();
+                    alert('Error: ' + (data.message || 'Failed to process payment'));
+                }
+            } catch (err) {
+                alert('Connection Error: Backend server unreachable');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Confirm Payment';
+            }
+        }
+
+        async function handleAddLoan(e) {
+            e.preventDefault();
+            const btn = e.target.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerText = 'Saving...';
+
+            try {
+                const payload = {
+                    loanName: document.getElementById('loan-name').value,
+                    totalAmount: parseFloat(document.getElementById('loan-amount').value),
+                    interestRate: parseFloat(document.getElementById('loan-rate').value),
+                    monthlyEMI: parseFloat(document.getElementById('loan-emi').value),
+                    tenure: parseInt(document.getElementById('loan-tenure').value)
+                };
+
+                const res = await fetch(`${API_URL}/api/loans/add`, {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`, 
+                        'Content-Type': 'application/json' 
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (res.ok) { 
+                    closeModal('loanModal'); 
+                    fetchLoansData(); 
+                    e.target.reset();
+                } else {
+                    const data = await res.json();
+                    alert('Error: ' + (data.message || 'Failed to save loan'));
+                }
+            } catch (err) {
+                alert('Connection Error: Please ensure backend server is running on port 5000');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Save Loan';
+            }
+        }
+
+        async function handleAddCard(e) {
+            e.preventDefault();
+            const btn = e.target.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerText = 'Saving...';
+
+            try {
+                const payload = {
+                    cardName: document.getElementById('card-name').value,
+                    totalDue: parseFloat(document.getElementById('card-due').value),
+                    minimumPayment: parseFloat(document.getElementById('card-min').value),
+                    dueDate: document.getElementById('card-date').value
+                };
+
+                const res = await fetch(`${API_URL}/api/loans/cards/add`, {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`, 
+                        'Content-Type': 'application/json' 
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (res.ok) { 
+                    closeModal('cardModal'); 
+                    fetchLoansData(); 
+                    e.target.reset();
+                } else {
+                    const data = await res.json();
+                    alert('Error: ' + (data.message || 'Failed to save card'));
+                }
+            } catch (err) {
+                alert('Connection Error: Backend server unreachable');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Save Card';
+            }
+        }
+
+        async function deleteLoan(id) {
+            if (confirm('Delete this loan?')) {
+                await fetch(`${API_URL}/api/loans/${id}`, { 
+                    method: 'DELETE', 
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } 
+                });
+                fetchLoansData();
+            }
+        }
+
+        async function deleteCard(id) {
+            if (confirm('Delete this card?')) {
+                await fetch(`${API_URL}/api/loans/cards/${id}`, { 
+                    method: 'DELETE', 
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } 
+                });
+                fetchLoansData();
+            }
+        }
+
+        window.onclick = (e) => {
+            if (e.target.className === 'modal') {
+                closeModal('loanModal');
+                closeModal('cardModal');
+            }
+        };
+    </script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">F</div>
+                    <div class="logo-text"><span class="logo-text-fin">Fin</span><span class="logo-text-track">Track</span></div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="dashboard.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                    </span> Dashboard
+                </a>
+                <a href="budget.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>
+                    Smart Budget
+                </a>
+                <a href="expenses.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>
+                    Expenses
+                </a>
+                <a href="goals.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>
+                    Goals
+                </a>
+                <a href="loans.html" class="sidebar-link active">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></span>
+                    Loans
+                </a>
+                <a href="portfolio.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span>
+                    Portfolio
+                </a>
+                <a href="report.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>
+                    AI Advisor Report
+                </a>
+                <a href="score.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></span>
+                    Health Score
+                </a>
+                <a href="recommendation.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>
+                    Suggestions
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <a href="profile.html" class="sidebar-link">
+                    <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>
+                    Profile
+                </a>
+                <a href="index.html" class="sidebar-link mt-1 text-danger">
+                    <span class="sidebar-icon text-danger"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></span>
+                    Log Out
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <div class="page-title">Active Loans & Credit Cards</div>
+                <div class="user-profile">
+                    <button id="theme-toggle" class="theme-toggle">🌓</button>
+                    <div class="avatar">JD</div>
+                </div>
+            </header>
+
+            <div class="content-wrapper">
+                <div class="grid grid-cols-4 gap-4 mb-6">
+                    <div class="card" style="background: linear-gradient(135deg, var(--primary-color), var(--primary-light)); color: white;">
+                        <div class="text-sm opacity-80">Total Outstanding Debt</div>
+                        <div class="text-2xl font-bold mt-1" id="overview-total-debt">₹0.00</div>
+                    </div>
+                    <div class="card">
+                        <div class="text-sm text-muted">Monthly EMI Total</div>
+                        <div class="text-2xl font-bold mt-1 text-primary" id="overview-emi">₹0.00</div>
+                    </div>
+                    <div class="card">
+                        <div class="text-sm text-muted">Credit Card Dues</div>
+                        <div class="text-2xl font-bold mt-1 text-danger" id="overview-card-dues">₹0.00</div>
+                    </div>
+                    <div class="card">
+                        <div class="text-sm text-muted">Repayment Progress</div>
+                        <div class="text-2xl font-bold mt-1" id="overview-progress-text">0%</div>
+                        <div class="progress-bar mt-2" style="height: 6px;"><div class="progress-fill" id="overview-progress-bar" style="width: 0%; background: var(--success);"></div></div>
+                    </div>
+                </div>
+
+                <div class="card mb-6">
+                    <div class="card-header flex justify-between items-center mb-4">
+                        <h3 class="card-title m-0">Loan Details</h3>
+                        <button class="btn btn-primary" onclick="openModal('loanModal')">+ Add Loan</button>
+                    </div>
+                    <div class="table-container">
+                        <table style="width:100%">
+                            <thead>
+                                <tr><th>Loan Name</th><th>Total Amount</th><th>Rate</th><th>Monthly EMI</th><th>Progress</th><th></th></tr>
+                            </thead>
+                            <tbody id="loans-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header flex justify-between items-center mb-4">
+                        <h3 class="card-title m-0">Credit Card Details</h3>
+                        <button class="btn btn-primary" onclick="openModal('cardModal')">+ Add Card</button>
+                    </div>
+                    <div class="table-container">
+                        <table style="width:100%">
+                            <thead>
+                                <tr><th>Card Name</th><th>Total Due</th><th>Min Payment</th><th>Due Date</th><th></th></tr>
+                            </thead>
+                            <tbody id="cards-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Loan Modal -->
+    <div id="loanModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><h3>Add New Loan</h3><span style="cursor:pointer" onclick="closeModal('loanModal')">&times;</span></div>
+            <form onsubmit="handleAddLoan(event)">
+                <div class="form-group mb-3"><label>Loan Name</label><input type="text" id="loan-name" class="form-control" placeholder="e.g. Home Loan" required></div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group"><label>Total Amount (₹)</label><input type="number" id="loan-amount" class="form-control" required></div>
+                    <div class="form-group"><label>Interest Rate (%)</label><input type="number" step="0.1" id="loan-rate" class="form-control" required></div>
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div class="form-group"><label>Monthly EMI (₹)</label><input type="number" id="loan-emi" class="form-control" required></div>
+                    <div class="form-group"><label>Tenure (Months)</label><input type="number" id="loan-tenure" class="form-control" required></div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Save Loan</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Card Modal -->
+    <div id="cardModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><h3>Add Credit Card Due</h3><span style="cursor:pointer" onclick="closeModal('cardModal')">&times;</span></div>
+            <form onsubmit="handleAddCard(event)">
+                <div class="form-group mb-3"><label>Card Name</label><input type="text" id="card-name" class="form-control" placeholder="e.g. HDFC Regalia" required></div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group"><label>Total Due (₹)</label><input type="number" id="card-due" class="form-control" required></div>
+                    <div class="form-group"><label>Min Payment (₹)</label><input type="number" id="card-min" class="form-control" required></div>
+                </div>
+                <div class="form-group mb-4"><label>Due Date</label><input type="date" id="card-date" class="form-control" required></div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Save Card</button>
+            </form>
+        </div>
+    </div>
+    <!-- Pay Extra Modal -->
+    <div id="payModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><h3>Payment Update - <span id="pay-loan-name"></span></h3><span style="cursor:pointer" onclick="closeModal('payModal')">&times;</span></div>
+            <form onsubmit="handlePayExtra(event)">
+                <div class="form-group mb-4">
+                    <label>Extra Principal Payment (₹)</label>
+                    <input type="number" id="pay-amount" class="form-control" placeholder="e.g. 50000" required>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; background: var(--success); border-color: var(--success);">Confirm Payment</button>
+            </form>
+        </div>
+    </div>
+    <!-- Edit Loan Modal -->
+    <div id="editLoanModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><h3>Edit Loan - <span id="edit-loan-name"></span></h3><span style="cursor:pointer" onclick="closeModal('editLoanModal')">&times;</span></div>
+            <form onsubmit="handleEditLoan(event)">
+                <div class="form-group mb-4">
+                    <label>Total Amount Paid till Now (₹)</label>
+                    <input type="number" id="edit-total-paid" class="form-control" placeholder="e.g. 150000" required>
+                    <small class="text-muted mt-1 block">Updating this recalculates your outstanding debt based on standard amortization over the contractual timeline.</small>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Update Loan</button>
+            </form>
+        </div>
+    </div>
+    <!-- Edit Card Modal -->
+    <div id="editCardModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><h3>Edit Credit Card - <span id="edit-card-name"></span></h3><span style="cursor:pointer" onclick="closeModal('editCardModal')">&times;</span></div>
+            <form onsubmit="handleEditCard(event)">
+                <div class="form-group mb-3">
+                    <label>Current Total Due (₹)</label>
+                    <input type="number" id="edit-card-due" class="form-control" required>
+                </div>
+                <div class="form-group mb-4">
+                    <label>Total Amount Paid (Tracking) (₹)</label>
+                    <input type="number" id="edit-card-paid" class="form-control" required>
+                    <small class="text-muted mt-1 block">Updating this logs payments and accurately displays your final net balance.</small>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Update Card</button>
+            </form>
+        </div>
+    </div>
+    <!-- Pay Card Modal -->
+    <div id="payCardModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><h3>Pay Credit Card - <span id="pay-card-name"></span></h3><span style="cursor:pointer" onclick="closeModal('payCardModal')">&times;</span></div>
+            <form onsubmit="handlePayCard(event)">
+                <div class="form-group mb-4">
+                    <label>Payment Amount (₹)</label>
+                    <input type="number" id="pay-card-amount" class="form-control" placeholder="e.g. 10000" min="1" required>
+                    <small class="text-muted mt-1 block">Cannot exceed current Total Due.</small>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; background: var(--success); border-color: var(--success);">Confirm Payment</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

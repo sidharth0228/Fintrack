@@ -1,0 +1,112 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script>
+        (function () {
+            if (localStorage.getItem('dark-mode') === 'enabled') {
+                document.documentElement.classList.add('dark-mode');
+            }
+        })();
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - FinTrack</title>
+    <link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+    <div class="auth-wrapper">
+        <div class="auth-card">
+            <div class="auth-header">
+                <div class="logo justify-center mb-4">
+                    <div class="logo-icon">F</div>
+                    <div class="logo-text"><span class="logo-text-fin">Fin</span><span
+                            class="logo-text-track">Track</span></div>
+                </div>
+                <h2>Create Account</h2>
+                <p class="text-muted">Start managing your wealth today.</p>
+            </div>
+
+            <div id="error-message"
+                style="color: var(--danger); background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 6px; margin-bottom: 15px; display: none; text-align: center; font-size: 0.875rem;">
+            </div>
+
+            <form id="signup-form">
+                <div class="form-group">
+                    <label class="form-label" for="fullname">Full Name</label>
+                    <input type="text" id="fullname" class="form-control" placeholder="John Doe" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="email">Email Address</label>
+                    <input type="email" id="email" class="form-control" placeholder="name@example.com" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="password">Password</label>
+                    <input type="password" id="password" class="form-control" placeholder="Create a strong password"
+                        required>
+                </div>
+
+                <div class="form-group flex items-center gap-1 mb-4 text-sm text-muted">
+                    <input type="checkbox" id="terms" required>
+                    <label for="terms">I agree to the <a href="#" style="color: var(--accent-color);">Terms</a> & <a
+                            href="#" style="color: var(--accent-color);">Privacy Policy</a></label>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Create Account</button>
+            </form>
+
+            <script>
+                document.querySelector('#signup-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+
+                    const name = document.querySelector('#fullname').value;
+                    const email = document.querySelector('#email').value;
+                    const password = document.querySelector('#password').value;
+                    const errorDiv = document.querySelector('#error-message');
+
+                    errorDiv.style.display = 'none';
+
+                    try {
+                        const response = await fetch('/api/auth/signup', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name, email, password })
+                        });
+
+                        let data;
+                        const contentType = response.headers.get("content-type");
+                        if (contentType && contentType.includes("application/json")) {
+                            data = await response.json();
+                        } else {
+                            data = { message: await response.text() };
+                        }
+
+                        if (response.ok) {
+                            alert('Account Created Successfully!');
+                            window.location.href = 'login.html';
+                        } else {
+                            let detailedError = data.message || 'Signup failed';
+                            if (data.error) detailedError += `\nError: ${data.error}`;
+                            if (data.tip) detailedError += `\nTip: ${data.tip}`;
+                            errorDiv.innerText = detailedError;
+                            errorDiv.style.display = 'block';
+                        }
+                    } catch (err) {
+                        console.error('Signup error:', err);
+                        errorDiv.innerText = 'Could not connect to the server. Please ensure backend is running.';
+                        errorDiv.style.display = 'block';
+                    }
+                });
+            </script>
+            <div class="auth-footer">
+                Already have an account? <a href="login.html">Log in</a>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

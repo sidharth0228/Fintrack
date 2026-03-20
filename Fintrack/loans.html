@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loans - FinTrack</title>
+    <link rel="stylesheet" href="style.css">
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (!token && window.location.hostname !== 'localhost' && window.location.protocol !== 'file:') {
+                // Ignore for local preview without backend
+            }
+
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                themeToggle.addEventListener('click', () => {
+                    document.body.classList.toggle('dark-theme');
+                });
+            }
+
+            const user = JSON.parse(localStorage.getItem('user'));
+            if (user && document.querySelector('.avatar')) {
+                document.querySelector('.avatar').innerText = user.name.split(' ').map(n => n[0]).join('').toUpperCase();
+            }
+
+            // Handle Logout
+            document.querySelectorAll('a').forEach(link => {
+                if (link.innerText.includes('Log Out')) {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = 'login.html';
+                    });
+                }
+            });
+
+            fetchLoansData();
+        });
+
+        function fetchLoansData() {
+            let loans = JSON.parse(localStorage.getItem('localLoans'));
+            let cards = JSON.parse(localStorage.getItem('localCards'));
+            let overrides = JSON.parse(localStorage.getItem('localLoanOverrides') || '{}');
+
+            if (!loans) {
+                loans = [
+                    { id: 'l1', name: 'Home Mortgage', provider: 'HDFC Bank', amount: 3500000, paid: 1500000, rate: 8.5, emi: 35000, duration: '12 yrs' },
+                    { id: 'l2', name: 'Auto Loan', provider: 'SBI Auto', amount: 800000, paid: 400000, rate: 9.2, emi: 18000, duration: '2 yrs' }
+                ];
+                localStorage.setItem('localLoans', JSON.stringify(loans));
+            }
+            if (!cards) {
+                cards = [
+                    { id: 'c1', name: 'HDFC Regalia', due: 45000, min: 2500, date: '2026-04-15' },
+                    { id: 'c2', name: 'SBI Prime', due: 15000, min: 1000, date: '2026-04-10' }
+                ];
+                localStorage.setItem('localCards', JSON.stringify(cards));
+            }
+
+            let calculatedTotalDebt = 0;
+            let calculatedEmi = 0;
+            let totalOriginalAmount = 0;
+            let totalLoanPaid = 0;
+
+            const loansTbody = document.getElementById('loans-tbody');
+            loansTbody.innerHTML = '';
+
+            loans.forEach(l => {
+                // For progress bar: amount is the "Current Total Balance" remaining + paid so far
+                // Or if 'amount' is treated as total outstanding:
+                let outstanding = l.amount;
+                
+                calculatedTotalDebt += outstanding;
+                calculatedEmi += l.emi;
+                
+                totalOriginalAmount += (l.amount + l.paid);
+                totalLoanPaid += l.paid;
+
+                let progress = (l.amount + l.paid) > 0 ? (l.paid / (l.amount + l.paid)) * 100 : 0;
+
+                loansTbody.innerHTML += `
+                    <tr>
+                        <td>
+                            <div class="font-medium text-primary">${l.name}</div>
+                            <div class="text-xs text-muted">${l.provider}</div>
+                        </td>
+                        <td>₹${l.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        <td><span class="badge badge-warning">${l.rate}% APR</span></td>
+                        <td class="font-semibold text-danger">₹${l.emi.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        <td style="width: 250px;">
+                            <div class="progress-wrapper">
+                                <div class="progress-info mb-1" style="font-size: 0.75rem;">
+                                    <span>₹${l.paid.toLocaleString('en-IN')} Paid</span>
+                                    <span>${l.duration}</span>
+                                </div>
+                                <div class="progress-bar" style="height: 6px;">
+                                    <div class="progress-fill" style="width: ${progress}%; background-color: var(--primary-color);"></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="text-right">
+                            <div class="flex items-center justify-end gap-2">
+                                <button class="btn btn-primary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="payEmi('${l.id}')">Pay EMI</button>
+                                <button class="btn btn-outline" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="payExtra('${l.id}')">Pay Extra</button>
+                                <button class="text-primary hover:text-success" style="background:none; border:none; cursor:pointer;" onclick="editLoan('${l.id}')" title="Edit">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                                </button>
+                                <button class="text-muted hover:text-danger" style="background:none; border:none; cursor:pointer;" onclick="deleteLoan('${l.id}')" title="Delete">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            if (loans.length === 0) {
+                loansTbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No active loans.</td></tr>';
+            }
+
+            let calculatedCardDues = 0;
+            const cardsTbody = document.getElementById('cards-tbody');
+            cardsTbody.innerHTML = '';
+
+            cards.forEach(c => {
+                calculatedCardDues += parseFloat(c.due);
+
+                cardsTbody.innerHTML += `
+                    <tr>
+                        <td><div class="font-medium text-primary">${c.name}</div></td>
+                        <td class="font-semibold text-danger">₹${parseFloat(c.due).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        <td class="text-warning font-semibold">₹${parseFloat(c.min).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        <td>${new Date(c.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                        <td class="text-right">
+                            <div class="flex items-center justify-end gap-3">
+                                <button class="btn btn-primary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="payCard('${c.id}')">Log Payment</button>
+                                <button class="text-primary hover:text-success" style="background:none; border:none; cursor:pointer;" onclick="editCard('${c.id}')" title="Edit">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                                </button>
+                                <button class="text-muted hover:text-danger" style="background:none; border:none; cursor:pointer;" onclick="deleteCard('${c.id}')" title="Delete">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            if (cards.length === 0) {
+                cardsTbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No active credit cards.</td></tr>';
+            }
+
+            calculatedTotalDebt += calculatedCardDues;
+            let calculatedProgress = totalOriginalAmount > 0 ? (totalLoanPaid / totalOriginalAmount) * 100 : 0;
+
+            let finalTotalDebt = overrides.totalDebt !== undefined ? overrides.totalDebt : calculatedTotalDebt;
+            let finalEmi = overrides.emi !== undefined ? overrides.emi : calculatedEmi;
+            let finalProgress = overrides.progress !== undefined ? overrides.progress : calculatedProgress;
+            let finalCardDues = overrides.cardDues !== undefined ? overrides.cardDues : calculatedCardDues;
+
+            document.getElementById('overview-total-debt').innerText = `₹${parseFloat(finalTotalDebt).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+            document.getElementById('overview-emi').innerText = `₹${parseFloat(finalEmi).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+            document.getElementById('overview-card-dues').innerText = `₹${parseFloat(finalCardDues).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+            finalProgress = Math.min(100, Math.max(0, finalProgress));
+            document.getElementById('overview-progress-text').innerText = `${finalProgress.toFixed(1)}%`;
+            document.getElementById('overview-progress-bar').style.width = `${finalProgress}%`;
+        }
+
+        function editOverview(key, label) {
+            let current = JSON.parse(localStorage.getItem('localLoanOverrides') || '{}');
+            let val = prompt(`Enter new value for ${label} \n(leave empty to automatically compute from tables):`, current[key] !== undefined ? current[key] : '');
+            if (val === null) return; 
+            if (val.trim() === '') {
+                delete current[key];
+            } else {
+                current[key] = parseFloat(val);
+            }
+            localStorage.setItem('localLoanOverrides', JSON.stringify(current));
+            fetchLoansData();
+        }
+
+        function openLoanModal() {
+            let name = prompt("Enter Loan Name:");
+            if (!name) return;
+            let provider = prompt("Enter Provider (e.g. HDFC Bank):");
+            let amount = parseFloat(prompt("Enter Total Remaining Amount (₹):"));
+            let paid = parseFloat(prompt("Enter Amount Paid so far (₹):"));
+            let rate = parseFloat(prompt("Enter Interest Rate (%):"));
+            let emi = parseFloat(prompt("Enter Monthly EMI (₹):"));
+            let duration = prompt("Enter Remaining Tenure (e.g. 5 yrs):");
+
+            if (!amount) amount = 0; if (!paid) paid = 0; if (!rate) rate = 0; if (!emi) emi = 0;
+
+            let loans = JSON.parse(localStorage.getItem('localLoans') || '[]');
+            loans.push({
+                id: 'l' + Date.now(),
+                name, provider, amount, paid, rate, emi, duration
+            });
+            localStorage.setItem('localLoans', JSON.stringify(loans));
+            fetchLoansData();
+        }
+
+        function editLoan(id) {
+            let loans = JSON.parse(localStorage.getItem('localLoans') || '[]');
+            let index = loans.findIndex(l => l.id === id);
+            if (index !== -1) {
+                let l = loans[index];
+                let name = prompt("Edit Loan Name:", l.name);
+                if (name === null) return;
+                l.name = name;
+                l.provider = prompt("Edit Provider:", l.provider) || l.provider;
+                let amt = prompt("Edit Total Remaining Amount (₹):", l.amount);
+                if(amt !== null && amt.trim() !== '') l.amount = parseFloat(amt) || l.amount;
+                
+                let pd = prompt("Edit Amount Paid (₹):", l.paid);
+                if(pd !== null && pd.trim() !== '') l.paid = parseFloat(pd) || 0;
+                
+                let rt = prompt("Edit Interest Rate (%):", l.rate);
+                if(rt !== null && rt.trim() !== '') l.rate = parseFloat(rt) || l.rate;
+                
+                let em = prompt("Edit Monthly EMI (₹):", l.emi);
+                if(em !== null && em.trim() !== '') l.emi = parseFloat(em) || l.emi;
+                
+                l.duration = prompt("Edit Remaining Tenure:", l.duration) || l.duration;
+                localStorage.setItem('localLoans', JSON.stringify(loans));
+                fetchLoansData();
+            }
+        }
+
+        function deleteLoan(id) {
+            if (confirm("Permanently delete this loan?")) {
+                let loans = JSON.parse(localStorage.getItem('localLoans') || '[]');
+                loans = loans.filter(l => l.id !== id);
+                localStorage.setItem('localLoans', JSON.stringify(loans));
+                fetchLoansData();
+            }
+        }
+
+        function logLoanExpense(title, amount) {
+            let expenses = JSON.parse(localStorage.getItem('localExpenses') || '[]');
+            expenses.push({
+                id: 'exp-' + Date.now(),
+                title: title,
+                amount: amount,
+                category: 'Debt Repayment', // generic category
+                date: new Date().toISOString()
+            });
+            localStorage.setItem('localExpenses', JSON.stringify(expenses));
+        }
+
+        function payEmi(id) {
+            let loans = JSON.parse(localStorage.getItem('localLoans') || '[]');
+            let loan = loans.find(l => l.id === id);
+            if (loan) {
+                if (confirm(`Confirm logging EMI payment of ₹${loan.emi.toLocaleString('en-IN')} for ${loan.name}?`)) {
+                    loan.amount -= loan.emi;
+                    if(loan.amount < 0) loan.amount = 0;
+                    loan.paid += loan.emi;
+                    
+                    localStorage.setItem('localLoans', JSON.stringify(loans));
+                    logLoanExpense(`Loan Payment: ${loan.name}`, loan.emi);
+                    fetchLoansData();
+                }
+            }
+        }
+
+        function payExtra(id) {
+            let amt = prompt("Enter extra payment amount (₹):");
+            if (amt !== null && amt.trim() !== '' && !isNaN(parseFloat(amt))) {
+                let pAmt = parseFloat(amt);
+                let loans = JSON.parse(localStorage.getItem('localLoans') || '[]');
+                let loan = loans.find(l => l.id === id);
+                if (loan) {
+                    loan.amount -= pAmt;
+                    if(loan.amount < 0) loan.amount = 0;
+                    loan.paid += pAmt;
+                    
+                    localStorage.setItem('localLoans', JSON.stringify(loans));
+                    logLoanExpense(`Loan Payment: ${loan.name}`, pAmt);
+                    fetchLoansData();
+                }
+            }
+        }
+
+        function payCard(id) {
+            let cards = JSON.parse(localStorage.getItem('localCards') || '[]');
+            let card = cards.find(c => c.id === id);
+            if (card) {
+                let amt = prompt(`Enter payment amount for ${card.name} (Minimum: ₹${card.min}):`, card.due);
+                if (amt !== null && amt.trim() !== '' && !isNaN(parseFloat(amt))) {
+                    let pAmt = parseFloat(amt);
+                    card.due -= pAmt;
+                    if(card.due < 0) card.due = 0;
+                    
+                    localStorage.setItem('localCards', JSON.stringify(cards));
+                    logLoanExpense(`Loan Payment: ${card.name}`, pAmt);
+                    fetchLoansData();
+                }
+            }
+        }
+
+        function openCardModal() {
+            let name = prompt("Enter Card Name:");
+            if (!name) return;
+            let due = parseFloat(prompt("Enter Total Due (₹):"));
+            let min = parseFloat(prompt("Enter Minimum Payment (₹):"));
+            let date = prompt("Enter Due Date (YYYY-MM-DD):");
+
+            if (!due) due = 0; if (!min) min = 0; if (!date) date = new Date().toISOString().split('T')[0];
+
+            let cards = JSON.parse(localStorage.getItem('localCards') || '[]');
+            cards.push({
+                id: 'c' + Date.now(),
+                name, due, min, date
+            });
+            localStorage.setItem('localCards', JSON.stringify(cards));
+            fetchLoansData();
+        }
+
+        function editCard(id) {
+            let cards = JSON.parse(localStorage.getItem('localCards') || '[]');
+            let index = cards.findIndex(c => c.id === id);
+            if (index !== -1) {
+                let c = cards[index];
+                let name = prompt("Edit Card Name:", c.name);
+                if (name === null) return;
+                c.name = name;
+                
+                let du = prompt("Edit Total Due (₹):", c.due);
+                if(du !== null && du.trim() !== '') c.due = parseFloat(du) || 0;
+                
+                let mn = prompt("Edit Minimum Payment (₹):", c.min);
+                if(mn !== null && mn.trim() !== '') c.min = parseFloat(mn) || 0;
+                
+                c.date = prompt("Edit Due Date (YYYY-MM-DD):", c.date) || c.date;
+                localStorage.setItem('localCards', JSON.stringify(cards));
+                fetchLoansData();
+            }
+        }
+
+        function deleteCard(id) {
+            if (confirm("Permanently delete this credit card?")) {
+                let cards = JSON.parse(localStorage.getItem('localCards') || '[]');
+                cards = cards.filter(c => c.id !== id);
+                localStorage.setItem('localCards', JSON.stringify(cards));
+                fetchLoansData();
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">F</div>
+                    <div class="logo-text"><span class="logo-text-fin">Fin</span><span class="logo-text-track">Track</span></div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="dashboard.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                    </span>
+                    Dashboard
+                </a>
+                <a href="budget.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                    </span>
+                    Smart Budget
+                </a>
+                <a href="goals.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    </span>
+                    Goals
+                </a>
+                <a href="report.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    </span>
+                    AI Advisor Report
+                </a>
+                <a href="portfolio.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                    </span>
+                    Portfolio
+                </a>
+                <a href="loans.html" class="sidebar-link active">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                    </span>
+                    Loans
+                </a>
+                <a href="expenses.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                    </span>
+                    Expenses
+                </a>
+                <a href="score.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                    </span>
+                    Health Score
+                </a>
+                <a href="recommendation.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    </span>
+                    Suggestions
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <a href="profile.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    </span>
+                    Profile
+                </a>
+                <a href="login.html" class="sidebar-link mt-1 text-danger">
+                    <span class="sidebar-icon text-danger">
+                        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                    </span>
+                    Log Out
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="page-title">Active Loans</div>
+                <div class="user-profile">
+                    <button id="theme-toggle" class="theme-toggle" title="Toggle Dark Mode" aria-label="Toggle Theme">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                        </svg>
+                    </button>
+                    <div class="avatar">JD</div>
+                </div>
+            </header>
+
+            <!-- Loans Content -->
+            <div class="content-wrapper">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-2xl mb-1">Debt Overview</h2>
+                        <p class="text-muted">Monitor and plan your EMI and credit card paydowns.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-4 gap-4 mb-6">
+                    <div class="card cursor-pointer hover:shadow-md transition-shadow" onclick="editOverview('totalDebt', 'Total Outstanding Debt')" style="background: linear-gradient(135deg, var(--primary-color), var(--primary-light)); color: white; border: none;">
+                        <div class="text-sm" style="color: rgba(255,255,255,0.7);">Total Outstanding Debt</div>
+                        <div class="text-2xl font-bold mt-2 truncate" id="overview-total-debt">₹0.00</div>
+                        <div class="text-xs mt-1" style="color: rgba(255,255,255,0.7);">(Tap to edit)</div>
+                    </div>
+                    <div class="card cursor-pointer hover:shadow-md transition-shadow" onclick="editOverview('emi', 'Monthly EMI Total')">
+                        <div class="text-sm text-muted">Monthly EMI Total</div>
+                        <div class="text-2xl font-bold mt-2 text-primary truncate" id="overview-emi">₹0.00</div>
+                        <div class="text-xs mt-1 text-muted">(Tap to edit)</div>
+                    </div>
+                    <div class="card cursor-pointer hover:shadow-md transition-shadow" onclick="editOverview('cardDues', 'Credit Card Dues')">
+                        <div class="text-sm text-muted">Credit Card Dues</div>
+                        <div class="text-2xl font-bold mt-2 text-danger truncate" id="overview-card-dues">₹0.00</div>
+                        <div class="text-xs mt-1 text-muted">(Tap to edit)</div>
+                    </div>
+                    <div class="card cursor-pointer hover:shadow-md transition-shadow" onclick="editOverview('progress', 'Overall Repayment Progress')">
+                        <div class="text-sm text-muted">Overall Repayment Progress</div>
+                        <div class="text-2xl font-bold mt-2 truncate" id="overview-progress-text">0%</div>
+                        <div class="progress-bar mt-2" style="height: 6px;">
+                            <div class="progress-fill" id="overview-progress-bar" style="width: 0%; background-color: var(--success);"></div>
+                        </div>
+                        <div class="text-xs mt-1 text-muted">(Tap to edit)</div>
+                    </div>
+                </div>
+
+                <!-- Loans Table -->
+                <div class="card mb-6">
+                    <div class="card-header flex justify-between items-center mb-4">
+                        <h3 class="card-title m-0">Loan Details</h3>
+                        <button class="btn btn-primary" onclick="openLoanModal()">+ Add Loan</button>
+                    </div>
+                    <div class="table-container">
+                        <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border-color);">
+                                    <th style="padding: 12px 8px; font-weight: 600;">Loan Name</th>
+                                    <th style="padding: 12px 8px; font-weight: 600;">Total Amount</th>
+                                    <th style="padding: 12px 8px; font-weight: 600;">Interest Rate</th>
+                                    <th style="padding: 12px 8px; font-weight: 600;">Monthly EMI</th>
+                                    <th style="padding: 12px 8px; font-weight: 600;">Progress / Tenure</th>
+                                    <th class="text-right" style="padding: 12px 8px; font-weight: 600;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="loans-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Credit Cards Table -->
+                <div class="card">
+                    <div class="card-header flex justify-between items-center mb-4">
+                        <h3 class="card-title m-0">Credit Card Details</h3>
+                        <button class="btn btn-primary" onclick="openCardModal()">+ Add Credit Card</button>
+                    </div>
+                    <div class="table-container">
+                        <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border-color);">
+                                    <th style="padding: 12px 8px; font-weight: 600;">Card Name</th>
+                                    <th style="padding: 12px 8px; font-weight: 600;">Total Due</th>
+                                    <th style="padding: 12px 8px; font-weight: 600;">Minimum Payment</th>
+                                    <th style="padding: 12px 8px; font-weight: 600;">Due Date</th>
+                                    <th class="text-right" style="padding: 12px 8px; font-weight: 600;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cards-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+
+</html>

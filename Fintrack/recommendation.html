@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investment Suggestions - FinTrack</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .risk-btn {
+            transition: all 0.2s ease;
+        }
+    </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                themeToggle.addEventListener('click', () => {
+                    document.body.classList.toggle('dark-theme');
+                });
+            }
+
+            // Sync User Info
+            const user = JSON.parse(localStorage.getItem('user'));
+            if (user && document.querySelector('.avatar')) {
+                document.querySelector('.avatar').innerText = user.name.split(' ').map(n => n[0]).join('').toUpperCase();
+            }
+
+            // Handle Logout
+            document.querySelectorAll('a').forEach(link => {
+                if (link.innerText.includes('Log Out')) {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = 'login.html';
+                    });
+                }
+            });
+
+            // --- AI Advisor Logic ---
+            let currentRisk = 'Moderate'; 
+            const riskBtns = document.querySelectorAll('.risk-btn');
+            
+            riskBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    // Reset all buttons
+                    riskBtns.forEach(b => {
+                        b.classList.remove('btn-primary');
+                        b.classList.add('btn-outline');
+                    });
+                    // Set active button
+                    e.target.classList.remove('btn-outline');
+                    e.target.classList.add('btn-primary');
+                    currentRisk = e.target.dataset.risk;
+                });
+            });
+
+            // Initialize Chart
+            const ctx = document.getElementById('allocationChart').getContext('2d');
+            const style = getComputedStyle(document.body);
+            let primaryColor = style.getPropertyValue('--primary-color').trim() || '#4F46E5';
+            let successColor = style.getPropertyValue('--success').trim() || '#10B981';
+            let infoColor = style.getPropertyValue('--info').trim() || '#3B82F6';
+            let warningColor = style.getPropertyValue('--warning').trim() || '#F59E0B';
+
+            let allocationChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Domestic Equities', 'Intl Equities', 'Fixed Income', 'Alternatives'],
+                    datasets: [{
+                        data: [40, 20, 30, 10], // Default placeholder values
+                        backgroundColor: [primaryColor, successColor, infoColor, warningColor],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '75%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return ' ' + context.label + ': ' + context.parsed + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            const form = document.getElementById('recommendation-form');
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                generateStrategy();
+            });
+
+            function generateStrategy() {
+                const ageInput = document.getElementById('userAge');
+                const age = parseInt(ageInput.value);
+
+                if (isNaN(age) || age < 18 || age > 100) {
+                    alert('Please enter a valid age between 18 and 100.');
+                    return;
+                }
+
+                // AI Logic Sandbox: Rule of 110
+                // Equity % = 110 - Age
+                let baseEquity = 110 - age;
+
+                // Adjust based on Risk Tolerance
+                if (currentRisk === 'Aggressive') baseEquity += 10;
+                if (currentRisk === 'Conservative') baseEquity -= 10;
+
+                // Clamp to realistic bounds (max 95% equity, min 10% equity)
+                baseEquity = Math.max(10, Math.min(95, baseEquity));
+                let fixedIncome = 100 - baseEquity;
+
+                // Sub-allocations
+                // Equities split: ~70% Domestic, ~30% Intl
+                const domesticEquity = Math.round(baseEquity * 0.7);
+                const intlEquity = baseEquity - domesticEquity;
+                
+                // Fixed split: ~80% Bonds, ~20% Alternatives/Cash
+                const bonds = Math.round(fixedIncome * 0.8);
+                const alternatives = fixedIncome - bonds;
+
+                // 1. Update Chart Data
+                allocationChart.data.datasets[0].data = [domesticEquity, intlEquity, bonds, alternatives];
+                allocationChart.update();
+
+                // 2. Update Center Text
+                document.getElementById('chart-center-val').innerText = `${baseEquity}%`;
+                document.getElementById('chart-center-label').innerText = 'Stocks';
+
+                // 3. Update Legend List Numbers
+                document.getElementById('val-domestic').innerText = `${domesticEquity}%`;
+                document.getElementById('val-intl').innerText = `${intlEquity}%`;
+                document.getElementById('val-bonds').innerText = `${bonds}%`;
+                document.getElementById('val-alt').innerText = `${alternatives}%`;
+
+                // 4. Generate AI Insights Text
+                let insight = `<strong>AI Analysis:</strong> At age ${age}, your investment horizon `;
+                if (age < 40) {
+                    insight += `allows for higher equity exposure to maximize long-term growth. `;
+                } else if (age < 60) {
+                    insight += `is moderate, requiring a balance between growth and capital preservation. `;
+                } else {
+                    insight += `prioritizes capital preservation and stable income generation. `;
+                }
+
+                if (currentRisk === 'Aggressive') {
+                    insight += `Your aggressive risk tolerance further tilts the portfolio towards global equities for maximum return potential, accepting higher volatility.`;
+                } else if (currentRisk === 'Conservative') {
+                    insight += `Your conservative risk profile dictates a substantial allocation to stable bonds and fixed income to protect your principal.`;
+                } else {
+                    insight += `A moderate risk approach maintains a standard, balanced allocation to ride out market fluctuations.`;
+                }
+
+                document.getElementById('ai-insights-text').innerHTML = insight;
+                document.getElementById('ai-insights-block').style.display = 'block';
+            }
+
+            // Optional: trigger generation on load if values exist
+            if(document.getElementById('userAge').value) {
+                generateStrategy();
+            }
+        });
+    </script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">F</div>
+                    <div class="logo-text"><span class="logo-text-fin">Fin</span><span
+                            class="logo-text-track">Track</span></div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="dashboard.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                    </span>
+                    Dashboard
+                </a>
+                <a href="budget.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                    </span>
+                    Smart Budget
+                </a>
+                <a href="goals.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </span>
+                    Goals
+                </a>
+                <a href="report.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </span>
+                    AI Advisor Report
+                </a>
+                <a href="portfolio.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                    </span>
+                    Portfolio
+                </a>
+                <a href="loans.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
+                            </path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                        </svg>
+                    </span>
+                    Loans
+                </a>
+                <a href="expenses.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <line x1="12" y1="1" x2="12" y2="23"></line>
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                    </span>
+                    Expenses
+                </a>
+                <a href="score.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                    </span>
+                    Health Score
+                </a>
+                <a href="recommendation.html" class="sidebar-link active">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </span>
+                    Suggestions
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <a href="profile.html" class="sidebar-link">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                    </span>
+                    Profile
+                </a>
+                <a href="index.html" class="sidebar-link mt-1 text-danger">
+                    <span class="sidebar-icon text-danger">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                    </span>
+                    Log Out
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="page-title">Personalized Suggestions</div>
+                <div class="user-profile">
+                    <button id="theme-toggle" class="theme-toggle" title="Toggle Dark Mode" aria-label="Toggle Theme">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                        </svg>
+                    </button>
+                    <div class="avatar">
+                        JD
+                    </div>
+                </div>
+            </header>
+
+            <!-- Recommendation Content -->
+            <div class="content-wrapper">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-2xl mb-1">Investment Strategy Planner</h2>
+                        <p class="text-muted">Generate a customized portfolio based on your risk profile and goals.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-6">
+                    <!-- Form Section -->
+                    <div class="card">
+                        <div class="card-header border-b pb-4 mb-4"
+                            style="border-bottom: 1px solid var(--border-color);">
+                            <h3 class="card-title">Define Your Profile</h3>
+                        </div>
+                        <form id="recommendation-form">
+                            <!-- NEW AGE INPUT -->
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium mb-2" for="userAge">Current Age</label>
+                                <input type="number" id="userAge" class="form-input" placeholder="e.g., 30" min="18" max="100" style="width: 100%;" value="30" required>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium mb-2">Primary Financial Goal</label>
+                                <select class="form-input" style="width: 100%;">
+                                    <option>Wealth Accumulation</option>
+                                    <option>Retirement Planning</option>
+                                    <option>Home Downpayment</option>
+                                    <option>Education Fund</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-6">
+                                <label class="block text-sm font-medium mb-2">Risk Tolerance</label>
+                                <div class="grid grid-cols-3 gap-2">
+                                    <button type="button" class="btn btn-outline risk-btn" data-risk="Conservative"
+                                        style="font-size: 0.8rem; padding: 0.5rem;">Conservative</button>
+                                    <button type="button" class="btn btn-primary risk-btn" data-risk="Moderate"
+                                        style="font-size: 0.8rem; padding: 0.5rem;">Moderate</button>
+                                    <button type="button" class="btn btn-outline risk-btn" data-risk="Aggressive"
+                                        style="font-size: 0.8rem; padding: 0.5rem;">Aggressive</button>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary" style="width: 100%;">Generate
+                                Strategy</button>
+                        </form>
+                    </div>
+
+                    <!-- Result Section -->
+                    <div class="card" id="result-card">
+                        <div class="card-header border-b pb-4 mb-4"
+                            style="border-bottom: 1px solid var(--border-color);">
+                            <h3 class="card-title">Recommended Allocation</h3>
+                        </div>
+
+                        <!-- DYNAMIC CHART JS CANVAS -->
+                        <div class="relative mx-auto mb-6" style="width: 200px; height: 200px;">
+                            <canvas id="allocationChart"></canvas>
+                            <!-- Center Text Overlay -->
+                            <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
+                                <div class="text-3xl font-bold" id="chart-center-val">60%</div>
+                                <div class="text-xs text-muted" id="chart-center-label">Stocks</div>
+                            </div>
+                        </div>
+
+                        <div class="flex-col gap-3">
+                            <div class="flex justify-between items-center py-1">
+                                <div class="flex items-center gap-2">
+                                    <div style="width: 12px; height: 12px; border-radius: 2px; background: var(--primary-color);"></div>
+                                    <span class="text-sm">Domestic Equities (Nifty 50 Index)</span>
+                                </div>
+                                <span class="font-bold text-sm" id="val-domestic">40%</span>
+                            </div>
+                            <div class="flex justify-between items-center py-1">
+                                <div class="flex items-center gap-2">
+                                    <div style="width: 12px; height: 12px; border-radius: 2px; background: var(--success);"></div>
+                                    <span class="text-sm">International Equities</span>
+                                </div>
+                                <span class="font-bold text-sm" id="val-intl">20%</span>
+                            </div>
+                            <div class="flex justify-between items-center py-1">
+                                <div class="flex items-center gap-2">
+                                    <div style="width: 12px; height: 12px; border-radius: 2px; background: var(--info);"></div>
+                                    <span class="text-sm">Fixed Income / Bonds</span>
+                                </div>
+                                <span class="font-bold text-sm" id="val-bonds">30%</span>
+                            </div>
+                            <div class="flex justify-between items-center py-1">
+                                <div class="flex items-center gap-2">
+                                    <div style="width: 12px; height: 12px; border-radius: 2px; background: var(--warning);"></div>
+                                    <span class="text-sm">Commodities (Gold/SGB) / Alternatives</span>
+                                </div>
+                                <span class="font-bold text-sm" id="val-alt">10%</span>
+                            </div>
+                        </div>
+
+                        <!-- NEW: AI Insights Block -->
+                        <div id="ai-insights-block" class="mt-6 p-4 rounded-md" style="display: none; background: rgba(79, 70, 229, 0.05); border: 1px solid rgba(79, 70, 229, 0.2);">
+                            <p class="text-sm text-muted" id="ai-insights-text" style="line-height: 1.5;"></p>
+                        </div>
+
+                        <button class="btn btn-outline" style="width: 100%; margin-top: 1.5rem;">Save This Portfolio</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+
+</html>
